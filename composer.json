@@ -9,6 +9,7 @@
         "bacon/bacon-qr-code": "^2.0",
         "barryvdh/laravel-dompdf": "^3.1",
         "bensampo/laravel-enum": "^6.12",
+        "doctrine/dbal": "^3.5.1",
         "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^10.10",
         "laravel/sanctum": "^3.3",
