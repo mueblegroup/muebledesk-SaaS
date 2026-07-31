@@ -1,0 +1,13 @@
+@php
+    $documentTemplate = $settings['receipt_template'] ?? 'modern';
+    $clientAddress = $payment->invoice->client->billing_address ?: 'Address not provided';
+    $clientEmail = $payment->invoice->client->billing_email ?: $payment->invoice->client->email;
+@endphp
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt {{ $receipt->receipt_number }}</title>@include('pdfs.partials.styles')</head><body class="template-{{ $documentTemplate }}">
+@php($documentTitle = 'PAYMENT RECEIPT') @php($documentNumber = $receipt->receipt_number) @include('pdfs.partials.header')
+<div class="receipt-hero"><div class="label">PAYMENT RECEIVED</div><div class="amount">RM {{ number_format($payment->amount, 2) }}</div><span class="badge paid">PAID</span></div>
+<table class="info"><tr><td><div class="label">RECEIVED FROM</div><strong>{{ $payment->invoice->client->name }}</strong><br>{!! nl2br(e($clientAddress)) !!}<br>{{ $clientEmail }}<br><strong>TIN:</strong> {{ $payment->invoice->client->tin_number ?: 'Not provided' }}<br><strong>{{ $payment->invoice->client->id_type ?: 'ID' }}:</strong> {{ $payment->invoice->client->id_number ?: 'Not provided' }}</td><td><div class="label">PAYMENT DETAILS</div><strong>Invoice:</strong> {{ $payment->invoice->invoice_number }}<br><strong>Date:</strong> {{ $payment->payment_date->format('d M Y') }}<br><strong>Method:</strong> {{ Str::title(str_replace('_', ' ', $payment->payment_method)) }}<br><strong>Reference:</strong> {{ $payment->transaction_reference ?: $payment->transaction_id ?: '—' }}</td></tr></table>
+<table class="items"><thead><tr><th>Description</th><th class="num">Amount</th></tr></thead><tbody><tr><td>Payment toward invoice {{ $payment->invoice->invoice_number }}@if($payment->notes)<br><span class="muted">{{ $payment->notes }}</span>@endif</td><td class="num">RM {{ number_format($payment->amount, 2) }}</td></tr></tbody></table>
+<div class="two"><div><div class="label">ACCOUNT SUMMARY</div><p>Invoice total: RM {{ number_format($payment->invoice->total_amount, 2) }}<br>Total paid: RM {{ number_format($payment->invoice->amount_paid, 2) }}<br>Balance: RM {{ number_format(max(0, $payment->invoice->total_amount-$payment->invoice->amount_paid), 2) }}</p></div><div><div class="label">RECORD DETAILS</div><p>Receipt: {{ $receipt->receipt_number }}<br>Recorded by: {{ $payment->recordedBy?->name ?? 'Payment gateway' }}<br>Generated: {{ now()->format('d M Y H:i') }}</p></div></div>
+<div class="footer">This computer-generated receipt confirms payment recorded against the invoice above.<br>{!! nl2br(e($settings['invoice_footer_note'] ?? 'Thank you for your payment.')) !!}</div>
+</body></html>
