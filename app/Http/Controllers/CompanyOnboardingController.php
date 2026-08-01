@@ -11,12 +11,8 @@ use Illuminate\View\View;
 
 class CompanyOnboardingController extends Controller
 {
-    public function create(Request $request): View|RedirectResponse
+    public function create(): View
     {
-        if ($request->user()->current_company_id) {
-            return redirect()->route('dashboard');
-        }
-
         return view('onboarding.company');
     }
 
@@ -39,7 +35,7 @@ class CompanyOnboardingController extends Controller
             $suffix = 2;
 
             while (Company::where('slug', $slug)->exists()) {
-                $slug = $baseSlug.'-'.$suffix++;
+                $slug = ($baseSlug ?: 'company').'-'.$suffix++;
             }
 
             $company = Company::create([
