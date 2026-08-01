@@ -1,10 +1,10 @@
 <x-guest-layout>
-    <form method="POST" action="{{ route('onboarding.company.store') }}" class="space-y-6">
+    <form method="POST" action="{{ route('portal.companies.store') }}" class="space-y-6">
         @csrf
 
         <div>
             <h1 class="text-2xl font-semibold text-gray-900">Create your company</h1>
-            <p class="mt-1 text-sm text-gray-600">This company will own your customers, invoices, quotations, expenses, payments, settings, integrations, and team members.</p>
+            <p class="mt-1 text-sm text-gray-600">This company becomes an isolated invoicing workspace with its own customers, invoices, quotations, expenses, payments, settings, integrations and team.</p>
         </div>
 
         <div>
@@ -50,8 +50,9 @@
             </div>
         </div>
 
-        <div class="flex justify-end">
-            <x-primary-button>Create company</x-primary-button>
+        <div class="flex items-center justify-between">
+            <a href="{{ route('portal.dashboard') }}" class="text-sm text-gray-600 hover:text-gray-900">Back to client portal</a>
+            <x-primary-button>Create company and open workspace</x-primary-button>
         </div>
     </form>
 </x-guest-layout>
