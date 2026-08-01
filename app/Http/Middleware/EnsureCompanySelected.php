@@ -12,24 +12,19 @@ class EnsureCompanySelected
     {
         $user = $request->user();
 
-        if (! $user || $request->routeIs(
-            'onboarding.company.*',
-            'verification.*',
-            'logout',
-            'password.*'
-        )) {
+        if (! $user) {
             return $next($request);
         }
 
         if (! $user->current_company_id) {
-            return redirect()->route('onboarding.company.create');
+            return redirect()->route('portal.companies.create');
         }
 
         if (! $user->companies()->whereKey($user->current_company_id)->exists()) {
             $user->forceFill(['current_company_id' => null])->save();
 
-            return redirect()->route('onboarding.company.create')
-                ->with('error', 'Please select or create a company before continuing.');
+            return redirect()->route('portal.companies.create')
+                ->with('error', 'Please select or create a company before opening the workspace.');
         }
 
         app()->instance('currentCompany', $user->currentCompany);
