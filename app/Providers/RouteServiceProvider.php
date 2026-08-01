@@ -11,16 +11,12 @@ use Illuminate\Support\Facades\Route;
 class RouteServiceProvider extends ServiceProvider
 {
     /**
-     * The path to your application's "home" route.
-     *
-     * Typically, users are redirected here after authentication.
-     *
-     * @var string
+     * The tenant-neutral client portal is the default destination after login.
      */
-    public const HOME = '/dashboard';
+    public const HOME = '/portal';
 
     /**
-     * Define your route model bindings, pattern filters, and other route configuration.
+     * Define route model bindings, rate limits, and route groups.
      */
     public function boot(): void
     {
@@ -35,6 +31,9 @@ class RouteServiceProvider extends ServiceProvider
 
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
+
+            Route::middleware('web')
+                ->group(base_path('routes/portal.php'));
         });
     }
 }

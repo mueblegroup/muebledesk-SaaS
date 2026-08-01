@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\UserRoleEnum;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -13,6 +15,7 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
+        'current_company_id',
         'name',
         'email',
         'phone',
@@ -40,6 +43,29 @@ class User extends Authenticatable
         'two_factor_recovery_codes' => 'encrypted:array',
         'two_factor_enabled_at' => 'datetime',
     ];
+
+    public function companies(): BelongsToMany
+    {
+        return $this->belongsToMany(Company::class)
+            ->withPivot(['role', 'joined_at'])
+            ->withTimestamps();
+    }
+
+    public function currentCompany(): BelongsTo
+    {
+        return $this->belongsTo(Company::class, 'current_company_id');
+    }
+
+    public function ownsCompany(?Company $company = null): bool
+    {
+        $company ??= $this->currentCompany;
+
+        return $company !== null
+            && $this->companies()
+                ->whereKey($company->getKey())
+                ->wherePivot('role', 'owner')
+                ->exists();
+    }
 
     public function clients()
     {
