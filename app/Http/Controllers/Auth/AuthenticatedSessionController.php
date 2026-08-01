@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
-use App\Providers\RouteServiceProvider;
 use App\Services\ActivityLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,17 +12,11 @@ use Illuminate\View\View;
 
 class AuthenticatedSessionController extends Controller
 {
-    /**
-     * Display the login view.
-     */
     public function create(): View
     {
         return view('auth.login');
     }
 
-    /**
-     * Handle an incoming authentication request.
-     */
     public function store(LoginRequest $request, ActivityLogger $activityLogger): RedirectResponse
     {
         $request->authenticate();
@@ -39,12 +32,9 @@ class AuthenticatedSessionController extends Controller
         $request->session()->put('two_factor_passed', true);
         $activityLogger->log('security.login', 'User logged in', Auth::user());
 
-        return redirect()->intended(RouteServiceProvider::HOME);
+        return redirect()->intended(route('portal.dashboard'));
     }
 
-    /**
-     * Destroy an authenticated session.
-     */
     public function destroy(Request $request, ActivityLogger $activityLogger): RedirectResponse
     {
         $activityLogger->log('security.logout', 'User logged out', Auth::user());
