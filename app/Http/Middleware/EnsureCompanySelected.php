@@ -12,7 +12,12 @@ class EnsureCompanySelected
     {
         $user = $request->user();
 
-        if (! $user) {
+        if (! $user || $request->routeIs(
+            'onboarding.company.*',
+            'verification.*',
+            'logout',
+            'password.*'
+        )) {
             return $next($request);
         }
 
