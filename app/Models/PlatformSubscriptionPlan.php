@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
-use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 class PlatformSubscriptionPlan extends Model
 {
@@ -14,8 +14,7 @@ class PlatformSubscriptionPlan extends Model
     protected $fillable = [
         'name', 'slug', 'description', 'price', 'currency',
         'duration_value', 'duration_unit', 'admin_limit', 'employee_limit',
-        'client_limit', 'auto_renew_default', 'trial_days', 'features',
-        'is_active', 'sort_order',
+        'client_limit', 'auto_renew_default', 'features', 'is_active', 'sort_order',
     ];
 
     protected $casts = [
@@ -34,17 +33,29 @@ class PlatformSubscriptionPlan extends Model
         return $this->hasMany(CompanySubscription::class);
     }
 
-    public function addDuration(CarbonInterface $date): CarbonInterface
+    public function calculateExpiry(?Carbon $from = null): Carbon
     {
+        $from ??= now();
+
         return match ($this->duration_unit) {
-            'day' => $date->copy()->addDays($this->duration_value),
-            'year' => $date->copy()->addYears($this->duration_value),
-            default => $date->copy()->addMonths($this->duration_value),
+            'days' => $from->copy()->addDays($this->duration_value),
+            'years' => $from->copy()->addYears($this->duration_value),
+            default => $from->copy()->addMonths($this->duration_value),
         };
     }
 
-    public function limitLabel(?int $limit): string
+    public function limitForRole(string $role): ?int
     {
-        return $limit === null ? 'Unlimited' : (string) $limit;
+        return match ($role) {
+            'admin' => $this->admin_limit,
+            'employee' => $this->employee_limit,
+            'customer' => $this->client_limit,
+            default => null,
+        };
+    }
+
+    public function durationLabel(): string
+    {
+        return $this->duration_value.' '.str($this->duration_unit)->singular($this->duration_value === 1)->toString();
     }
 }
