@@ -25,6 +25,10 @@ class DashboardController extends Controller
             return redirect()->route('login');
         }
 
+        if (! $user->isCustomer() && ! $user->currentCompany) {
+            return redirect()->route('companies.create');
+        }
+
         return match ($user->role) {
             UserRoleEnum::Admin => $this->adminDashboard(),
             UserRoleEnum::Employee => $this->employeeDashboard(),
