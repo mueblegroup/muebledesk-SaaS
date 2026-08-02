@@ -9,12 +9,22 @@ class SystemGuideController extends Controller
 {
     public function index(): View
     {
-        return view('system-guide.index', [
+        return view('system-guide.index', $this->guideData());
+    }
+
+    public function clientPortal(): View
+    {
+        return view('system-guide.client-portal', $this->guideData());
+    }
+
+    private function guideData(): array
+    {
+        return [
             'user' => Auth::user(),
             'environment' => config('myinvois.environment', 'sandbox'),
             'myInvoisEnabled' => (bool) config('myinvois.enabled'),
             'productionEnabled' => (bool) config('myinvois.production_enabled'),
             'queueConnection' => config('queue.default'),
-        ]);
+        ];
     }
 }
