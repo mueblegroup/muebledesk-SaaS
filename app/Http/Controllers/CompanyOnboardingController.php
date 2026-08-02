@@ -14,8 +14,9 @@ class CompanyOnboardingController extends Controller
 {
     public function create(Request $request): View|RedirectResponse
     {
-        if ($request->user()->currentCompany) {
-            return redirect()->route('client-portal.dashboard');
+        if ($request->user()->companies()->exists()) {
+            return redirect()->route('client-portal.dashboard')
+                ->with('warning', 'Your account already has a company.');
         }
 
         return view('onboarding.company');
@@ -23,8 +24,9 @@ class CompanyOnboardingController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        if ($request->user()->currentCompany) {
-            return redirect()->route('client-portal.dashboard');
+        if ($request->user()->companies()->exists()) {
+            return redirect()->route('client-portal.dashboard')
+                ->with('warning', 'Your account already has a company.');
         }
 
         $validated = $request->validate([
