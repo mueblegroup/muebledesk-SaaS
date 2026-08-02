@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class ApiKey extends Model
 {
-    use HasFactory;
+    use BelongsToCompany, HasFactory;
 
     public const AVAILABLE_PERMISSIONS = [
         'clients.read', 'clients.write', 'clients.delete',
@@ -22,15 +23,8 @@ class ApiKey extends Model
     ];
 
     protected $fillable = [
-        'name',
-        'key_hash',
-        'key_prefix',
-        'user_id',
-        'permissions',
-        'allowed_ips',
-        'last_used_at',
-        'expires_at',
-        'revoked_at',
+        'company_id', 'name', 'key_hash', 'key_prefix', 'user_id', 'permissions',
+        'allowed_ips', 'last_used_at', 'expires_at', 'revoked_at',
     ];
 
     protected $casts = [
@@ -63,20 +57,13 @@ class ApiKey extends Model
 
     public function isUsable(?string $ip = null): bool
     {
-        if ($this->revoked_at !== null) {
-            return false;
-        }
-
-        if ($this->expires_at !== null && $this->expires_at->isPast()) {
+        if ($this->revoked_at !== null || ($this->expires_at !== null && $this->expires_at->isPast())) {
             return false;
         }
 
         $allowedIps = $this->allowed_ips ?: [];
-        if ($ip && count($allowedIps) > 0 && ! in_array($ip, $allowedIps, true)) {
-            return false;
-        }
 
-        return true;
+        return ! ($ip && count($allowedIps) > 0 && ! in_array($ip, $allowedIps, true));
     }
 
     public function canAccess(string $permission): bool
