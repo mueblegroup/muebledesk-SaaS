@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Client extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToCompany;
 
     protected $fillable = [
+        'company_id',
         'name',
         'client_type',
         'contact_person',
@@ -65,7 +67,7 @@ class Client extends Model
 
     public function payments()
     {
-        return $this->hasMany(Payment::class);
+        return $this->hasManyThrough(Payment::class, Invoice::class);
     }
 
     public function getBillingAddressAttribute(): string
