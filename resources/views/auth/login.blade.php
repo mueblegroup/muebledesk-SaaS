@@ -5,12 +5,14 @@
         @if(session('error'))<div class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{{ session('error') }}</div>@endif
         <x-auth-session-status class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700" :status="session('status')" />
 
-        <div class="grid gap-3 sm:grid-cols-3">
-            @foreach(['google'=>'Google','microsoft'=>'Microsoft','apple'=>'Apple'] as $provider=>$label)
-                <a href="{{ route('social.redirect',$provider) }}" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-extrabold text-slate-700 hover:border-indigo-300 hover:text-indigo-600">{{ $label }}</a>
-            @endforeach
-        </div>
-        <div class="flex items-center gap-3"><div class="h-px flex-1 bg-slate-200"></div><span class="text-xs font-bold uppercase text-slate-400">or email</span><div class="h-px flex-1 bg-slate-200"></div></div>
+        @if (class_exists(\Laravel\Socialite\Facades\Socialite::class))
+            <div class="grid gap-3 sm:grid-cols-3">
+                @foreach(['google'=>'Google','microsoft'=>'Microsoft','apple'=>'Apple'] as $provider=>$label)
+                    <a href="{{ route('social.redirect',$provider) }}" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-extrabold text-slate-700 hover:border-indigo-300 hover:text-indigo-600">{{ $label }}</a>
+                @endforeach
+            </div>
+            <div class="flex items-center gap-3"><div class="h-px flex-1 bg-slate-200"></div><span class="text-xs font-bold uppercase text-slate-400">or email</span><div class="h-px flex-1 bg-slate-200"></div></div>
+        @endif
 
         <form method="POST" action="{{ route('login') }}" class="space-y-5">
             @csrf
