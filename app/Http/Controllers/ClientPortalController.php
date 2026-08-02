@@ -11,8 +11,13 @@ class ClientPortalController extends Controller
 {
     public function index(Request $request): View|RedirectResponse
     {
+        if ($request->user()->isSuperAdmin()) {
+            return redirect()->route('superadmin.dashboard');
+        }
+
         $companies = $request->user()
             ->companies()
+            ->with('subscription.plan')
             ->orderBy('name')
             ->get();
 
