@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use App\Services\ActivityLogger;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,7 +12,7 @@ use Illuminate\Support\Facades\Log;
 
 class Setting extends Model
 {
-    use HasFactory;
+    use BelongsToCompany, HasFactory;
 
     public const SENSITIVE_KEYS = [
         'hitpay_api_key',
@@ -21,18 +22,14 @@ class Setting extends Model
         'stripe_webhook_secret',
     ];
 
-    protected $fillable = ['key', 'value'];
+    protected $fillable = ['company_id', 'key', 'value'];
 
     public static function get(string $key, $default = null)
     {
-        return Cache::rememberForever("setting.{$key}", function () use ($key, $default) {
+        return Cache::rememberForever(static::cacheKey($key), function () use ($key, $default) {
             $value = static::query()->where('key', $key)->value('value');
 
-            if ($value === null) {
-                return $default;
-            }
-
-            return static::decodeValue($key, (string) $value);
+            return $value === null ? $default : static::decodeValue($key, (string) $value);
         });
     }
 
@@ -40,15 +37,14 @@ class Setting extends Model
     {
         $oldValue = static::get($key);
         $newValue = is_null($value) ? '' : (string) $value;
-        $storedValue = static::encodeValue($key, $newValue);
 
         static::query()->updateOrCreate(
             ['key' => $key],
-            ['value' => $storedValue]
+            ['value' => static::encodeValue($key, $newValue)]
         );
 
-        Cache::forget("setting.{$key}");
-        Cache::forget('settings.all');
+        Cache::forget(static::cacheKey($key));
+        Cache::forget(static::cacheKey('all'));
 
         if ((string) $oldValue !== $newValue) {
             app(ActivityLogger::class)->log(
@@ -65,12 +61,18 @@ class Setting extends Model
 
     public static function allKeyed(): array
     {
-        return Cache::rememberForever('settings.all', function () {
-            return static::query()
-                ->pluck('value', 'key')
+        return Cache::rememberForever(static::cacheKey('all'), function () {
+            return static::query()->pluck('value', 'key')
                 ->map(fn ($value, $key) => static::decodeValue((string) $key, (string) $value))
                 ->toArray();
         });
+    }
+
+    private static function cacheKey(string $key): string
+    {
+        $companyId = app()->bound('currentCompany') ? app('currentCompany')->getKey() : 'platform';
+
+        return "settings.{$companyId}.{$key}";
     }
 
     public static function isSensitive(string $key): bool
@@ -80,11 +82,7 @@ class Setting extends Model
 
     public static function encodeValue(string $key, string $value): string
     {
-        if ($value === '' || ! static::isSensitive($key)) {
-            return $value;
-        }
-
-        if (str_starts_with($value, 'enc:')) {
+        if ($value === '' || ! static::isSensitive($key) || str_starts_with($value, 'enc:')) {
             return $value;
         }
 
