@@ -12,18 +12,20 @@ class CompanySubscription extends Model
 
     protected $fillable = [
         'company_id', 'platform_subscription_plan_id', 'status',
-        'starts_at', 'ends_at', 'auto_renew', 'is_enabled', 'renewal_failures',
         'stripe_customer_id', 'stripe_subscription_id', 'stripe_checkout_session_id',
+        'starts_at', 'expires_at', 'auto_renew', 'is_enabled',
+        'renewal_failure_count', 'last_renewal_attempt_at', 'last_renewal_error',
         'trial_ends_at', 'current_period_starts_at', 'current_period_ends_at',
         'cancel_at', 'canceled_at',
     ];
 
     protected $casts = [
         'starts_at' => 'datetime',
-        'ends_at' => 'datetime',
+        'expires_at' => 'datetime',
         'auto_renew' => 'boolean',
         'is_enabled' => 'boolean',
-        'renewal_failures' => 'integer',
+        'renewal_failure_count' => 'integer',
+        'last_renewal_attempt_at' => 'datetime',
         'trial_ends_at' => 'datetime',
         'current_period_starts_at' => 'datetime',
         'current_period_ends_at' => 'datetime',
@@ -41,32 +43,35 @@ class CompanySubscription extends Model
         return $this->belongsTo(PlatformSubscriptionPlan::class, 'platform_subscription_plan_id');
     }
 
-    public function isExpired(): bool
-    {
-        return $this->ends_at !== null && $this->ends_at->isPast();
-    }
-
     public function isActive(): bool
     {
         return $this->is_enabled
             && in_array($this->status, ['active', 'trialing'], true)
-            && ! $this->isExpired();
+            && (! $this->expires_at || $this->expires_at->isFuture());
     }
 
-    public function activateFromPlan(PlatformSubscriptionPlan $plan, ?bool $autoRenew = null): void
+    public function activate(?\DateTimeInterface $from = null): void
     {
-        $startsAt = now();
-
-        $this->fill([
-            'platform_subscription_plan_id' => $plan->id,
+        $start = $from ? now()->parse($from) : now();
+        $this->forceFill([
             'status' => 'active',
-            'starts_at' => $startsAt,
-            'ends_at' => $plan->addDuration($startsAt),
-            'auto_renew' => $autoRenew ?? $plan->auto_renew_default,
             'is_enabled' => true,
-            'renewal_failures' => 0,
-            'canceled_at' => null,
-            'cancel_at' => null,
+            'starts_at' => $start,
+            'expires_at' => $this->plan?->calculateExpiry($start),
+            'renewal_failure_count' => 0,
+            'last_renewal_error' => null,
+        ])->save();
+    }
+
+    public function extend(): void
+    {
+        $base = $this->expires_at && $this->expires_at->isFuture() ? $this->expires_at : now();
+        $this->forceFill([
+            'status' => 'active',
+            'is_enabled' => true,
+            'expires_at' => $this->plan?->calculateExpiry($base),
+            'renewal_failure_count' => 0,
+            'last_renewal_error' => null,
         ])->save();
     }
 }
