@@ -12,17 +12,11 @@ use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
-        //
+        $this->app->register(SuperAdminRouteServiceProvider::class);
     }
 
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
         foreach ([Client::class, Invoice::class, Payment::class, Quotation::class, Setting::class] as $model) {
