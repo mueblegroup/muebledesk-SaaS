@@ -18,11 +18,10 @@ class TenantIsolationTest extends TestCase
         [$companyA, $companyB] = $this->companies();
         $this->bindCompany($companyA);
 
-        $clientA = Client::create(['name' => 'Company A Client', 'client_type' => 'business']);
+        $clientA = Client::create($this->clientData('Company A Client', 'client-a@example.test'));
         $clientB = Client::withoutGlobalScopes()->create([
             'company_id' => $companyB->id,
-            'name' => 'Company B Client',
-            'client_type' => 'business',
+            ...$this->clientData('Company B Client', 'client-b@example.test'),
         ]);
 
         $this->assertSame($companyA->id, $clientA->company_id);
@@ -36,7 +35,7 @@ class TenantIsolationTest extends TestCase
         [$company] = $this->companies();
         $this->bindCompany($company);
 
-        $client = Client::create(['name' => 'Client', 'client_type' => 'business']);
+        $client = Client::create($this->clientData('Client', 'child-test@example.test'));
         $invoice = Invoice::create([
             'client_id' => $client->id,
             'invoice_number' => 'INV-TEST-001',
@@ -79,7 +78,7 @@ class TenantIsolationTest extends TestCase
         [$company] = $this->companies();
         $this->bindCompany($company);
 
-        $client = Client::create(['name' => 'Private Client', 'client_type' => 'business']);
+        $client = Client::create($this->clientData('Private Client', 'private-client@example.test'));
         $invoice = Invoice::create([
             'client_id' => $client->id,
             'invoice_number' => 'PRIVATE-INVOICE-999',
@@ -96,6 +95,15 @@ class TenantIsolationTest extends TestCase
         $this->get('/payment/confirmation?status=completed&reference=INV-'.$invoice->id)
             ->assertOk()
             ->assertDontSee('PRIVATE-INVOICE-999');
+    }
+
+    protected function clientData(string $name, string $email): array
+    {
+        return [
+            'name' => $name,
+            'client_type' => 'business',
+            'email' => $email,
+        ];
     }
 
     protected function companies(): array
