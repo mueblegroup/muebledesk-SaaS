@@ -1,106 +1,90 @@
-<!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Client Portal · {{ config('app.name', 'MuebleDesk') }}</title>
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
-</head>
-<body class="min-h-screen bg-slate-100 font-sans text-slate-900 antialiased">
+<x-app-layout>
+    <x-slot name="header">
+        <div>
+            <h1 class="text-xl font-extrabold tracking-tight text-slate-950 sm:text-2xl">Client Portal</h1>
+            <p class="mt-1 text-sm text-slate-500">Companies, subscriptions, seats and workspace access.</p>
+        </div>
+    </x-slot>
+
     @php
-        $user = auth()->user();
         $companyCount = $companies->count();
-        $activeCompany = $currentCompany ?: $companies->first();
+        $activeSubscriptions = $companies->filter(fn ($company) => in_array($company->subscription?->status, ['active', 'trialing'], true))->count();
+        $totalSeats = $companies->sum(fn ($company) => (int) ($company->subscription?->seats ?? 0));
     @endphp
 
-    <div x-data="{ mobileMenu: false }" class="min-h-screen lg:flex">
-        <div x-show="mobileMenu" x-cloak class="fixed inset-0 z-40 bg-slate-950/50 lg:hidden" @click="mobileMenu = false"></div>
-
-        <aside class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col bg-slate-950 text-white transition lg:sticky lg:top-0 lg:h-screen lg:translate-x-0" :class="mobileMenu ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
-            <div class="border-b border-white/10 px-6 py-5">
-                <a href="{{ route('client-portal.dashboard') }}" class="flex items-center gap-3">
-                    <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500 text-lg font-extrabold">M</span>
-                    <span><span class="block font-extrabold">MuebleDesk</span><span class="block text-xs text-slate-400">SaaS Client Portal</span></span>
-                </a>
-            </div>
-
-            <nav class="flex-1 space-y-2 px-4 py-6">
-                <a href="{{ route('client-portal.dashboard') }}" class="flex items-center gap-3 rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold"><span>▦</span>Overview</a>
-                <a href="{{ route('companies.create') }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"><span>＋</span>Create company</a>
-                @if ($activeCompany)
-                    <a href="{{ route('client-portal.billing.index', $activeCompany) }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"><span>💳</span>Plans & billing</a>
-                @endif
-                <a href="{{ route('profile.edit') }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white"><span>◎</span>Account settings</a>
-            </nav>
-
-            <div class="border-t border-white/10 p-4">
-                <div class="rounded-2xl bg-white/5 p-4">
-                    <p class="truncate text-sm font-bold">{{ $user?->name }}</p>
-                    <p class="truncate text-xs text-slate-400">{{ $user?->email }}</p>
-                    <form method="POST" action="{{ route('logout') }}" class="mt-4">@csrf<button class="w-full rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">Log out</button></form>
-                </div>
-            </div>
-        </aside>
-
-        <div class="min-w-0 flex-1">
-            <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
-                <div class="flex items-center justify-between px-4 py-4 sm:px-6 lg:px-10">
-                    <div class="flex items-center gap-3">
-                        <button type="button" class="rounded-xl border border-slate-200 bg-white p-2.5 lg:hidden" @click="mobileMenu = true">☰</button>
-                        <div><h1 class="text-xl font-extrabold">Client Portal</h1><p class="text-sm text-slate-500">Companies, seats, plans and billing</p></div>
-                    </div>
-                    <a href="{{ route('companies.create') }}" class="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white">+ Create company</a>
-                </div>
-            </header>
-
-            <main class="px-4 py-8 sm:px-6 lg:px-10">
-                <div class="mx-auto max-w-7xl space-y-8">
-                    @foreach (['success' => 'emerald', 'error' => 'red'] as $key => $color)
-                        @if (session($key))
-                            <div class="rounded-2xl border px-5 py-4 text-sm font-semibold {{ $color === 'emerald' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800' }}">{{ session($key) }}</div>
+    <div class="mx-auto max-w-7xl space-y-8">
+        <section class="relative overflow-hidden rounded-[2rem] bg-slate-950 px-6 py-8 text-white shadow-2xl shadow-slate-950/15 sm:px-8 lg:px-10 lg:py-10">
+            <div class="absolute -right-20 -top-24 h-72 w-72 rounded-full bg-indigo-500/30 blur-3xl"></div>
+            <div class="absolute -bottom-28 left-1/3 h-64 w-64 rounded-full bg-cyan-400/20 blur-3xl"></div>
+            <div class="relative grid gap-8 lg:grid-cols-[1.35fr_.65fr] lg:items-end">
+                <div>
+                    <span class="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-extrabold text-indigo-100 backdrop-blur">MuebleDesk SaaS</span>
+                    <h2 class="mt-5 max-w-3xl text-3xl font-black tracking-tight sm:text-4xl">Run every company from one secure account.</h2>
+                    <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">Manage subscriptions and seats centrally, then enter each isolated invoicing workspace through its own subdomain.</p>
+                    <div class="mt-6 flex flex-wrap gap-3">
+                        <a href="{{ route('companies.create') }}" class="rounded-2xl bg-white px-5 py-3 text-sm font-extrabold text-slate-950 shadow-lg transition hover:-translate-y-0.5">Create company</a>
+                        @if ($currentCompany && Route::has('client-portal.billing.show'))
+                            <a href="{{ route('client-portal.billing.show', $currentCompany) }}" class="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-extrabold text-white backdrop-blur transition hover:bg-white/15">Manage plan</a>
                         @endif
-                    @endforeach
-
-                    <section class="rounded-3xl bg-slate-950 px-7 py-8 text-white shadow-2xl sm:px-10">
-                        <div class="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end">
-                            <div><span class="rounded-full bg-indigo-500/20 px-3 py-1 text-xs font-bold text-indigo-200">MuebleDesk SaaS</span><h2 class="mt-5 text-3xl font-extrabold sm:text-4xl">Welcome back, {{ $user?->name }}.</h2><p class="mt-3 max-w-2xl text-slate-300">Manage subscriptions centrally, then open each company’s isolated invoicing workspace.</p></div>
-                            <div class="grid grid-cols-2 gap-3"><div class="rounded-2xl bg-white/10 p-4"><p class="text-2xl font-extrabold">{{ $companyCount }}</p><p class="text-xs text-slate-400">Companies</p></div><div class="rounded-2xl bg-white/10 p-4"><p class="text-2xl font-extrabold">{{ $companies->sum(fn ($company) => $company->subscription?->seats ?? 0) }}</p><p class="text-xs text-slate-400">Purchased seats</p></div></div>
-                        </div>
-                    </section>
-
-                    <section>
-                        <div class="mb-5"><h2 class="text-2xl font-extrabold">Your companies</h2><p class="text-sm text-slate-500">Workspace access and platform subscription status.</p></div>
-                        <div class="grid gap-6 xl:grid-cols-2">
-                            @foreach ($companies as $company)
-                                @php($subscription = $company->subscription)
-                                <article class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-                                    <div class="border-b border-slate-100 p-6">
-                                        <div class="flex items-start justify-between gap-4">
-                                            <div class="flex items-center gap-4"><div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 text-xl font-extrabold text-white">{{ strtoupper(substr($company->name, 0, 1)) }}</div><div><h3 class="text-xl font-extrabold">{{ $company->name }}</h3><p class="text-sm text-slate-500">{{ $scheme }}://{{ $company->slug }}.{{ $rootDomain }}</p></div></div>
-                                            <span class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold capitalize text-indigo-700">{{ $company->pivot->role ?? 'member' }}</span>
-                                        </div>
-                                    </div>
-
-                                    <div class="grid gap-4 p-6 sm:grid-cols-3">
-                                        <div class="rounded-2xl bg-slate-50 p-4"><p class="text-xs font-bold uppercase text-slate-400">Plan</p><p class="mt-2 font-extrabold">{{ $subscription?->plan?->name ?? 'No plan' }}</p></div>
-                                        <div class="rounded-2xl bg-slate-50 p-4"><p class="text-xs font-bold uppercase text-slate-400">Seats</p><p class="mt-2 font-extrabold">{{ $company->seatsUsed() }} / {{ $subscription?->seats ?? '—' }}</p></div>
-                                        <div class="rounded-2xl bg-slate-50 p-4"><p class="text-xs font-bold uppercase text-slate-400">Status</p><p class="mt-2 font-extrabold capitalize {{ $subscription?->isActive() ? 'text-emerald-600' : 'text-amber-600' }}">{{ $subscription?->status ?? 'unsubscribed' }}</p></div>
-                                    </div>
-
-                                    <div class="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row">
-                                        <form method="POST" action="{{ route('companies.switch', $company) }}" class="flex-1">@csrf<button class="w-full rounded-xl bg-indigo-600 px-5 py-3 text-sm font-extrabold text-white">Open invoicing workspace</button></form>
-                                        <a href="{{ route('client-portal.billing.index', $company) }}" class="rounded-xl border border-slate-200 bg-white px-5 py-3 text-center text-sm font-bold text-slate-700">Plan & billing</a>
-                                    </div>
-                                </article>
-                            @endforeach
-                        </div>
-                    </section>
+                    </div>
                 </div>
-            </main>
-        </div>
+                <div class="grid grid-cols-3 gap-3">
+                    @foreach ([['Companies', $companyCount], ['Active plans', $activeSubscriptions], ['Seats', $totalSeats]] as [$label, $value])
+                        <div class="rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"><p class="text-2xl font-black sm:text-3xl">{{ $value }}</p><p class="mt-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">{{ $label }}</p></div>
+                    @endforeach
+                </div>
+            </div>
+        </section>
+
+        <section class="grid gap-4 md:grid-cols-3">
+            @foreach ([
+                ['Account ready', 'Your SaaS identity and secure login are active.', '✓'],
+                ['Company workspaces', $companyCount ? 'Your subdomains are ready to open.' : 'Create your first company and reserve its subdomain.', '⌂'],
+                ['Seat billing', $activeSubscriptions ? 'Stripe subscription billing is active.' : 'Choose a plan and purchase the seats your team needs.', '◇'],
+            ] as [$title, $description, $icon])
+                <div class="rounded-3xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-950/5">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-lg font-black text-white">{{ $icon }}</div>
+                    <h3 class="mt-4 font-extrabold text-slate-950">{{ $title }}</h3>
+                    <p class="mt-1 text-sm leading-6 text-slate-500">{{ $description }}</p>
+                </div>
+            @endforeach
+        </section>
+
+        <section>
+            <div class="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div><h2 class="text-2xl font-black tracking-tight text-slate-950">Your companies</h2><p class="mt-1 text-sm text-slate-500">Open a workspace or manage its subscription and seat allowance.</p></div>
+                <a href="{{ route('companies.create') }}" class="text-sm font-extrabold text-indigo-600 hover:text-indigo-500">+ Add company</a>
+            </div>
+
+            <div class="grid gap-6 xl:grid-cols-2">
+                @foreach ($companies as $company)
+                    @php
+                        $workspaceHost = $company->slug.'.'.$rootDomain;
+                        $subscription = $company->subscription;
+                        $isActive = in_array($subscription?->status, ['active', 'trialing'], true);
+                    @endphp
+                    <article class="group overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-2xl hover:shadow-slate-950/10">
+                        <div class="p-6 sm:p-7">
+                            <div class="flex items-start justify-between gap-4">
+                                <div class="flex min-w-0 items-center gap-4">
+                                    <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-xl font-black text-white shadow-lg shadow-indigo-500/20">{{ strtoupper(substr($company->name, 0, 1)) }}</div>
+                                    <div class="min-w-0"><h3 class="truncate text-xl font-black text-slate-950">{{ $company->name }}</h3><p class="mt-1 truncate text-sm text-slate-500">{{ $scheme }}://{{ $workspaceHost }}</p></div>
+                                </div>
+                                <span class="rounded-full px-3 py-1 text-xs font-extrabold {{ $isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">{{ $isActive ? ucfirst($subscription->status) : 'Plan required' }}</span>
+                            </div>
+                            <div class="mt-6 grid grid-cols-3 gap-3">
+                                <div class="rounded-2xl bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Plan</p><p class="mt-2 truncate text-sm font-extrabold">{{ $subscription?->plan?->name ?? 'None' }}</p></div>
+                                <div class="rounded-2xl bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Seats</p><p class="mt-2 text-sm font-extrabold">{{ $subscription?->seats ?? 0 }}</p></div>
+                                <div class="rounded-2xl bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Role</p><p class="mt-2 text-sm font-extrabold capitalize">{{ $company->pivot->role ?? 'member' }}</p></div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/80 p-5 sm:flex-row">
+                            <form method="POST" action="{{ route('companies.switch', $company) }}" class="flex-1">@csrf<button class="w-full rounded-2xl bg-slate-950 px-5 py-3 text-sm font-extrabold text-white transition group-hover:bg-indigo-600">Open workspace</button></form>
+                            @if (Route::has('client-portal.billing.show'))<a href="{{ route('client-portal.billing.show', $company) }}" class="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-center text-sm font-extrabold text-slate-700 transition hover:border-indigo-200 hover:text-indigo-600">Plan & billing</a>@endif
+                        </div>
+                    </article>
+                @endforeach
+            </div>
+        </section>
     </div>
-</body>
-</html>
+</x-app-layout>
