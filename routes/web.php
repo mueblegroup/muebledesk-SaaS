@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\ApiKeyController;
 use App\Http\Controllers\Admin\SettingController as AdminSettingController;
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\ClientPortalBillingController;
 use App\Http\Controllers\ClientPortalController;
 use App\Http\Controllers\CompanyOnboardingController;
 use App\Http\Controllers\CustomerEInvoiceProfileController;
@@ -18,22 +19,29 @@ use App\Http\Controllers\PublicPaymentController;
 use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\RecurringInvoiceController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\SystemGuideController;
 use App\Http\Controllers\TwoFactorAuthenticationController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\Webhook\HitPayWebhookController;
+use App\Http\Controllers\Webhook\StripePlatformWebhookController;
 use App\Http\Controllers\Webhook\StripeWebhookController;
 use App\Http\Middleware\NormalizeClientCountryCode;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return auth()->check()
-        ? redirect()->route('client-portal.dashboard')
-        : redirect()->route('login');
+    if (! auth()->check()) {
+        return redirect()->route('login');
+    }
+
+    return auth()->user()->isSuperAdmin()
+        ? redirect()->route('superadmin.dashboard')
+        : redirect()->route('client-portal.dashboard');
 });
 
 Route::post('/hitpay/webhook', [HitPayWebhookController::class, 'handle'])->name('hitpay.webhook');
 Route::post('/stripe/webhook', [StripeWebhookController::class, 'handle'])->name('stripe.webhook');
+Route::post('/stripe/platform/webhook', [StripePlatformWebhookController::class, 'handle'])->name('stripe.platform.webhook');
 Route::get('/payment/confirmation', [PublicPaymentController::class, 'confirmation'])->name('payment.confirmation');
 
 Route::middleware('auth')->group(function () {
@@ -41,11 +49,27 @@ Route::middleware('auth')->group(function () {
     Route::post('/two-factor-challenge', [TwoFactorAuthenticationController::class, 'verify'])->middleware('throttle:6,1')->name('two-factor.verify');
 });
 
+Route::middleware(['auth', 'verified', '2fa', 'role:superadmin'])
+    ->prefix('superadmin')
+    ->name('superadmin.')
+    ->group(function () {
+        Route::get('/dashboard', [SuperAdminController::class, 'dashboard'])->name('dashboard');
+        Route::get('/plans', [SuperAdminController::class, 'plans'])->name('plans.index');
+        Route::post('/plans', [SuperAdminController::class, 'storePlan'])->name('plans.store');
+        Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->name('plans.update');
+        Route::delete('/plans/{plan}', [SuperAdminController::class, 'destroyPlan'])->name('plans.destroy');
+    });
+
 Route::middleware(['auth', 'verified', '2fa'])->group(function () {
     Route::get('/client-portal', [ClientPortalController::class, 'index'])->name('client-portal.dashboard');
     Route::get('/companies/create', [CompanyOnboardingController::class, 'create'])->name('companies.create');
     Route::post('/companies', [CompanyOnboardingController::class, 'store'])->name('companies.store');
     Route::post('/companies/{company}/switch', [ClientPortalController::class, 'switch'])->name('companies.switch');
+
+    Route::get('/client-portal/companies/{company}/billing', [ClientPortalBillingController::class, 'index'])->name('client-portal.billing.index');
+    Route::post('/client-portal/companies/{company}/plans/{plan}/checkout', [ClientPortalBillingController::class, 'checkout'])->name('client-portal.billing.checkout');
+    Route::get('/client-portal/companies/{company}/billing/success', [ClientPortalBillingController::class, 'success'])->name('client-portal.billing.success');
+    Route::post('/client-portal/companies/{company}/billing/portal', [ClientPortalBillingController::class, 'portal'])->name('client-portal.billing.portal');
 });
 
 Route::get('/dashboard', [DashboardController::class, 'index'])
