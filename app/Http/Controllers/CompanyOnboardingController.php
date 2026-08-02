@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\UserRoleEnum;
 use App\Models\Company;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -11,13 +12,21 @@ use Illuminate\View\View;
 
 class CompanyOnboardingController extends Controller
 {
-    public function create(Request $request): View
+    public function create(Request $request): View|RedirectResponse
     {
+        if ($request->user()->currentCompany) {
+            return redirect()->route('client-portal.dashboard');
+        }
+
         return view('onboarding.company');
     }
 
     public function store(Request $request): RedirectResponse
     {
+        if ($request->user()->currentCompany) {
+            return redirect()->route('client-portal.dashboard');
+        }
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'registration_number' => ['nullable', 'string', 'max:100'],
@@ -52,12 +61,13 @@ class CompanyOnboardingController extends Controller
 
             $request->user()->forceFill([
                 'current_company_id' => $company->id,
+                'role' => UserRoleEnum::Admin,
             ])->save();
 
             return $company;
         });
 
         return redirect()->route('client-portal.dashboard')
-            ->with('success', "{$company->name} is ready. Open its workspace when you are ready to start invoicing.");
+            ->with('success', "{$company->name} is ready. Open its workspace to start invoicing.");
     }
 }
