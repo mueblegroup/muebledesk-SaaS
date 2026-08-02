@@ -2,14 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\UserRoleEnum;
 use App\Models\Company;
 use App\Models\CompanySubscription;
 use App\Models\PlatformSubscriptionPlan;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\View\View;
 
 class SuperAdminController extends Controller
@@ -27,6 +30,46 @@ class SuperAdminController extends Controller
                 ->sum(fn ($subscription) => (float) ($subscription->plan?->price_per_seat ?? 0) * $subscription->seats),
             'companies' => Company::with(['owners', 'subscription.plan'])->latest()->take(10)->get(),
         ]);
+    }
+
+    public function users(): View
+    {
+        return view('superadmin.users.index', [
+            'superadmins' => User::where('role', UserRoleEnum::SuperAdmin->value)->orderBy('name')->get(),
+        ]);
+    }
+
+    public function storeUser(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'password' => ['required', 'confirmed', Password::defaults()],
+        ]);
+
+        User::create([
+            'name' => $validated['name'],
+            'email' => strtolower($validated['email']),
+            'phone' => $validated['phone'] ?? null,
+            'password' => Hash::make($validated['password']),
+            'role' => UserRoleEnum::SuperAdmin,
+            'email_verified_at' => now(),
+            'current_company_id' => null,
+        ]);
+
+        return back()->with('success', 'Superadmin account created.');
+    }
+
+    public function destroyUser(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($user->isSuperAdmin(), 404);
+        abort_if($request->user()->is($user), 422, 'You cannot delete your own superadmin account.');
+        abort_if(User::where('role', UserRoleEnum::SuperAdmin->value)->count() <= 1, 422, 'The last superadmin cannot be deleted.');
+
+        $user->delete();
+
+        return back()->with('success', 'Superadmin account deleted.');
     }
 
     public function plans(): View
