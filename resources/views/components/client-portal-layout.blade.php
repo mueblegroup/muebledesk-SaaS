@@ -19,9 +19,19 @@
 <body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
 @php
     $portalUser = auth()->user();
-    $hasCompany = $portalUser?->companies()->exists() ?? false;
-    $selectedCompany = $company ?? $portalUser?->currentCompany;
+    $selectedCompany = $company ?? $portalUser?->currentCompany ?? $portalUser?->companies()->with('subscription.plan')->first();
     $billingRoute = Route::has('client-portal.billing.show') ? 'client-portal.billing.show' : 'client-portal.billing.index';
+    $billingUrl = $selectedCompany && Route::has($billingRoute)
+        ? route($billingRoute, $selectedCompany)
+        : route('client-portal.dashboard');
+
+    $navigation = [
+        ['label' => 'Overview', 'url' => route('client-portal.dashboard'), 'active' => request()->routeIs('client-portal.dashboard'), 'icon' => '⌂'],
+        ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋'],
+        ['label' => 'System guide', 'url' => route('system-guide.index'), 'active' => request()->routeIs('system-guide.*'), 'icon' => '▤'],
+        ['label' => 'Profile & security', 'url' => route('profile.edit'), 'active' => request()->routeIs('profile.*'), 'icon' => '◎'],
+        ['label' => 'Plans & billing', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.*'), 'icon' => '◇'],
+    ];
 @endphp
 <div x-data="{ sidebarOpen: false }" class="min-h-screen lg:flex">
     <div x-cloak x-show="sidebarOpen" x-transition.opacity class="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm lg:hidden" @click="sidebarOpen = false"></div>
@@ -36,25 +46,12 @@
         </div>
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-4 py-5">
-            <a href="{{ route('client-portal.dashboard') }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ request()->routeIs('client-portal.dashboard') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
-                <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-white/10">⌂</span><span>Overview</span>
-            </a>
-
-            @if ($selectedCompany && Route::has($billingRoute))
-                <a href="{{ route($billingRoute, $selectedCompany) }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ request()->routeIs('client-portal.billing.*') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
-                    <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-white/10">◇</span><span>Plan & billing</span>
+            @foreach ($navigation as $item)
+                <a href="{{ $item['url'] }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ $item['active'] ? 'bg-white text-slate-950 shadow-lg shadow-black/10' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                    <span class="flex h-8 w-8 items-center justify-center rounded-xl {{ $item['active'] ? 'bg-slate-100' : 'bg-white/10' }}">{{ $item['icon'] }}</span>
+                    <span>{{ $item['label'] }}</span>
                 </a>
-            @endif
-
-            @unless ($hasCompany)
-                <a href="{{ route('companies.create') }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ request()->routeIs('companies.create') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
-                    <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-white/10">＋</span><span>Create company</span>
-                </a>
-            @endunless
-
-            <a href="{{ route('profile.edit') }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ request()->routeIs('profile.*') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
-                <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-white/10">◎</span><span>Account settings</span>
-            </a>
+            @endforeach
         </nav>
 
         <div class="border-t border-white/10 p-4">
