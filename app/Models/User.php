@@ -92,6 +92,11 @@ class User extends Authenticatable
         return ! empty($this->two_factor_secret) && ! is_null($this->two_factor_enabled_at);
     }
 
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === UserRoleEnum::SuperAdmin;
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === UserRoleEnum::Admin;
