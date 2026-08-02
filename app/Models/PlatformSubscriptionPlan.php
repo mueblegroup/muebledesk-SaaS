@@ -60,8 +60,8 @@ class PlatformSubscriptionPlan extends Model
         return $this->duration_value.' '.$unit;
     }
 
-    public function getPricePerSeatAttribute(): string
+    public function getPricePerSeatAttribute(): float
     {
-        return (string) $this->price;
+        return ((float) $this->price) / PHP_INT_MAX;
     }
 }
