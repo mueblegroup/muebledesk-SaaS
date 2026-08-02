@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\Company;
 use App\Models\Invoice;
 use App\Models\Setting;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -34,10 +35,12 @@ class TenantIsolationTest extends TestCase
     {
         [$company] = $this->companies();
         $this->bindCompany($company);
+        $employee = User::factory()->create();
 
         $client = Client::create($this->clientData('Client', 'child-test@example.test'));
         $invoice = Invoice::create([
             'client_id' => $client->id,
+            'employee_id' => $employee->id,
             'invoice_number' => 'INV-TEST-001',
             'date' => now()->toDateString(),
             'due_date' => now()->addDays(14)->toDateString(),
@@ -77,10 +80,12 @@ class TenantIsolationTest extends TestCase
     {
         [$company] = $this->companies();
         $this->bindCompany($company);
+        $employee = User::factory()->create();
 
         $client = Client::create($this->clientData('Private Client', 'private-client@example.test'));
         $invoice = Invoice::create([
             'client_id' => $client->id,
+            'employee_id' => $employee->id,
             'invoice_number' => 'PRIVATE-INVOICE-999',
             'date' => now()->toDateString(),
             'due_date' => now()->addDays(14)->toDateString(),
