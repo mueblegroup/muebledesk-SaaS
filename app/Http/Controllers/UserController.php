@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\UserRoleEnum;
 use App\Models\Client;
+use App\Models\Company;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use Illuminate\Http\Request;
@@ -22,13 +23,15 @@ class UserController extends Controller
     public function index(Request $request)
     {
         $users = $this->filteredUsers($request)->paginate((int) $request->input('per_page', 10))->withQueryString();
-        $roles = UserRoleEnum::cases();
+        $roles = $this->tenantRoles();
+
         return view('users.index', compact('users', 'roles'));
     }
 
     public function export(Request $request)
     {
         $users = $this->filteredUsers($request)->get();
+
         return response()->streamDownload(function () use ($users) {
             $handle = fopen('php://output', 'w');
             fputcsv($handle, ['Name', 'Email', 'Phone', 'Job Title', 'Role', 'Created At']);
@@ -41,27 +44,40 @@ class UserController extends Controller
 
     public function bulkDestroy(Request $request)
     {
+        $company = $this->currentCompany($request);
         $ids = $request->validate(['ids' => 'required|array', 'ids.*' => 'integer'])['ids'];
-        $users = User::whereIn('id', $ids)->get();
+        $users = $company->users()->whereIn('users.id', $ids)->get();
+
         foreach ($users as $user) {
             $this->authorize('delete', $user);
-            $user->delete();
+            abort_if($user->id === $request->user()->id, 422, 'You cannot remove your own account.');
+            $company->users()->detach($user->id);
         }
-        return redirect()->route('users.index')->with('success', $users->count().' user(s) deleted successfully.');
+
+        return redirect()->route('users.index')->with('success', $users->count().' team member(s) removed successfully.');
     }
 
-    public function create()
+    public function create(Request $request)
     {
-        return view('users.create', ['roles' => UserRoleEnum::cases()]);
+        $company = $this->currentCompany($request);
+
+        return view('users.create', [
+            'roles' => $this->tenantRoles(),
+            'seatLimit' => $company->seatLimit(),
+            'seatsUsed' => $company->seatsUsed(),
+        ]);
     }
 
     public function store(Request $request, ActivityLogger $activityLogger)
     {
+        $company = $this->currentCompany($request);
+        $this->ensureSeatAvailable($company);
         $validated = $request->validate($this->rules($request));
 
         try {
-            $user = DB::transaction(function () use ($validated) {
+            $user = DB::transaction(function () use ($validated, $company) {
                 $user = User::create([
+                    'current_company_id' => $company->id,
                     'name' => $validated['name'],
                     'email' => $validated['email'],
                     'phone' => $validated['phone'],
@@ -72,6 +88,11 @@ class UserController extends Controller
                     'email_verified_at' => now(),
                 ]);
 
+                $company->users()->attach($user->id, [
+                    'role' => $validated['role'] === UserRoleEnum::Admin->value ? 'admin' : 'member',
+                    'joined_at' => now(),
+                ]);
+
                 if ($validated['role'] === UserRoleEnum::Customer->value) {
                     $this->syncCustomerProfile($user, $validated);
                 }
@@ -79,27 +100,35 @@ class UserController extends Controller
                 return $user;
             });
 
-            $activityLogger->log('user.created', 'User created', $user, [], $user->only(['id', 'name', 'email', 'phone', 'role']));
-            return redirect()->route('users.index')->with('success', 'User created successfully.');
+            $activityLogger->log('user.created', 'Team member created', $user, [], $user->only(['id', 'name', 'email', 'phone', 'role']));
+
+            return redirect()->route('users.index')->with('success', 'Team member created successfully.');
         } catch (\Throwable $e) {
             Log::error('Error creating user: '.$e->getMessage(), ['request' => $request->except(['password', 'password_confirmation']), 'exception' => $e]);
+
             return back()->with('error', 'An error occurred while creating the user.')->withInput();
         }
     }
 
-    public function edit(User $user)
+    public function edit(Request $request, User $user)
     {
+        $company = $this->currentCompany($request);
+        abort_unless($company->users()->whereKey($user->id)->exists(), 404);
         $user->load('clients');
-        return view('users.edit', ['user' => $user, 'roles' => UserRoleEnum::cases()]);
+
+        return view('users.edit', ['user' => $user, 'roles' => $this->tenantRoles()]);
     }
 
     public function update(Request $request, User $user, ActivityLogger $activityLogger)
     {
+        $company = $this->currentCompany($request);
+        abort_unless($company->users()->whereKey($user->id)->exists(), 404);
         $validated = $request->validate($this->rules($request, $user));
         $old = $user->only(['id', 'name', 'email', 'phone', 'job_title', 'address', 'role']);
 
-        DB::transaction(function () use ($validated, $user) {
+        DB::transaction(function () use ($validated, $user, $company) {
             $user->fill([
+                'current_company_id' => $company->id,
                 'name' => $validated['name'],
                 'email' => $validated['email'],
                 'phone' => $validated['phone'],
@@ -112,27 +141,38 @@ class UserController extends Controller
             }
             $user->save();
 
+            $company->users()->updateExistingPivot($user->id, [
+                'role' => $validated['role'] === UserRoleEnum::Admin->value ? 'admin' : 'member',
+            ]);
+
             if ($validated['role'] === UserRoleEnum::Customer->value) {
                 $this->syncCustomerProfile($user, $validated);
             }
         });
 
-        $activityLogger->log('user.updated', 'User updated', $user, $old, $user->fresh()->only(['id', 'name', 'email', 'phone', 'job_title', 'address', 'role']));
-        return redirect()->route('users.index')->with('success', 'User updated successfully.');
+        $activityLogger->log('user.updated', 'Team member updated', $user, $old, $user->fresh()->only(['id', 'name', 'email', 'phone', 'job_title', 'address', 'role']));
+
+        return redirect()->route('users.index')->with('success', 'Team member updated successfully.');
     }
 
-    public function destroy(User $user, ActivityLogger $activityLogger)
+    public function destroy(Request $request, User $user, ActivityLogger $activityLogger)
     {
+        $company = $this->currentCompany($request);
+        abort_unless($company->users()->whereKey($user->id)->exists(), 404);
+        abort_if($user->id === $request->user()->id, 422, 'You cannot remove your own account.');
+
         try {
-            return DB::transaction(function () use ($user, $activityLogger) {
+            return DB::transaction(function () use ($company, $user, $activityLogger) {
                 $old = $user->only(['id', 'name', 'email', 'role']);
-                $user->delete();
-                $activityLogger->log('user.deleted', 'User deleted', null, $old, []);
-                return redirect()->route('users.index')->with('success', 'User deleted successfully.');
+                $company->users()->detach($user->id);
+                $activityLogger->log('user.removed', 'Team member removed from company', $user, $old, []);
+
+                return redirect()->route('users.index')->with('success', 'Team member removed successfully.');
             });
         } catch (\Throwable $e) {
-            Log::error('Error deleting user: '.$e->getMessage(), ['user_id' => $user->id, 'exception' => $e]);
-            return back()->with('error', 'An error occurred while deleting the user.');
+            Log::error('Error removing user: '.$e->getMessage(), ['user_id' => $user->id, 'exception' => $e]);
+
+            return back()->with('error', 'An error occurred while removing the user.');
         }
     }
 
@@ -145,7 +185,7 @@ class UserController extends Controller
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->id)],
             'phone' => ['required', 'string', 'max:30'],
             'password' => [$user ? 'nullable' : 'required', 'confirmed', Rules\Password::defaults()],
-            'role' => ['required', Rule::enum(UserRoleEnum::class)],
+            'role' => ['required', Rule::in(collect($this->tenantRoles())->map->value->all())],
             'job_title' => [$customer ? 'nullable' : 'required', 'string', 'max:255'],
             'address' => ['required', 'string', 'max:2000'],
             'client_type' => [Rule::requiredIf($customer), 'nullable', 'in:individual,company'],
@@ -195,14 +235,47 @@ class UserController extends Controller
 
     private function filteredUsers(Request $request)
     {
-        $query = User::query();
+        $company = $this->currentCompany($request);
+        $query = $company->users()->getQuery()->select('users.*');
+
         if ($search = trim((string) $request->input('q'))) {
             $query->where(fn ($builder) => $builder->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%")->orWhere('job_title', 'like', "%{$search}%"));
         }
-        if ($role = $request->input('role')) $query->where('role', $role);
-        if ($from = $request->input('from')) $query->whereDate('created_at', '>=', $from);
-        if ($to = $request->input('to')) $query->whereDate('created_at', '<=', $to);
+        if ($role = $request->input('role')) {
+            $query->where('users.role', $role);
+        }
+        if ($from = $request->input('from')) {
+            $query->whereDate('users.created_at', '>=', $from);
+        }
+        if ($to = $request->input('to')) {
+            $query->whereDate('users.created_at', '<=', $to);
+        }
+
         $sort = in_array($request->input('sort'), ['name', 'email', 'role', 'created_at'], true) ? $request->input('sort') : 'name';
-        return $query->orderBy($sort, $request->input('direction') === 'desc' ? 'desc' : 'asc');
+
+        return $query->orderBy('users.'.$sort, $request->input('direction') === 'desc' ? 'desc' : 'asc');
+    }
+
+    private function currentCompany(Request $request): Company
+    {
+        $company = $request->attributes->get('currentCompany') ?: $request->user()->currentCompany;
+        abort_unless($company instanceof Company, 404, 'Company workspace not found.');
+
+        return $company->loadMissing('subscription');
+    }
+
+    private function ensureSeatAvailable(Company $company): void
+    {
+        $subscription = $company->subscription;
+        abort_unless($subscription?->isActive(), 402, 'An active platform subscription is required.');
+        abort_if($company->seatsUsed() >= $subscription->seats, 422, 'Your plan seat limit has been reached. Upgrade the company plan to add more users.');
+    }
+
+    private function tenantRoles(): array
+    {
+        return array_values(array_filter(
+            UserRoleEnum::cases(),
+            fn (UserRoleEnum $role) => $role !== UserRoleEnum::SuperAdmin
+        ));
     }
 }
