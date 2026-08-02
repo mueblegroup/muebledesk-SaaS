@@ -2,23 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class WebhookEvent extends Model
 {
-    use HasFactory;
+    use BelongsToCompany, HasFactory;
 
     protected $fillable = [
-        'gateway',
-        'event_id',
-        'event_type',
-        'transaction_id',
-        'status',
-        'payload_summary',
-        'error_message',
-        'received_at',
-        'processed_at',
+        'company_id', 'gateway', 'event_id', 'event_type', 'transaction_id',
+        'status', 'payload_summary', 'error_message', 'received_at', 'processed_at',
     ];
 
     protected $casts = [
