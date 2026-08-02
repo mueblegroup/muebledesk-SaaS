@@ -28,7 +28,7 @@
     $navigation = [
         ['label' => 'Overview', 'url' => route('client-portal.dashboard'), 'active' => request()->routeIs('client-portal.dashboard'), 'icon' => '⌂'],
         ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋'],
-        ['label' => 'System guide', 'url' => route('system-guide.index'), 'active' => request()->routeIs('system-guide.*'), 'icon' => '▤'],
+        ['label' => 'System guide', 'url' => route('client-portal.system-guide'), 'active' => request()->routeIs('client-portal.system-guide'), 'icon' => '▤'],
         ['label' => 'Profile & security', 'url' => route('profile.edit'), 'active' => request()->routeIs('profile.*'), 'icon' => '◎'],
         ['label' => 'Plans & billing', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.*'), 'icon' => '◇'],
     ];
