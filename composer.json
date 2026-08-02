@@ -13,8 +13,11 @@
         "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^10.10",
         "laravel/sanctum": "^3.3",
+        "laravel/socialite": "^5.29",
         "laravel/tinker": "^2.8",
-        "laravel/ui": "^4.6"
+        "laravel/ui": "^4.6",
+        "socialiteproviders/apple": "^5.10",
+        "socialiteproviders/microsoft": "^4.10"
     },
     "require-dev": {
         "barryvdh/laravel-debugbar": "^3.15",
@@ -54,19 +57,12 @@
             "@php artisan key:generate --ansi"
         ]
     },
-    "extra": {
-        "laravel": {
-            "dont-discover": []
-        }
-    },
+    "extra": {"laravel": {"dont-discover": []}},
     "config": {
         "optimize-autoloader": true,
         "preferred-install": "dist",
         "sort-packages": true,
-        "allow-plugins": {
-            "pestphp/pest-plugin": true,
-            "php-http/discovery": true
-        }
+        "allow-plugins": {"pestphp/pest-plugin": true,"php-http/discovery": true}
     },
     "minimum-stability": "stable",
     "prefer-stable": true
