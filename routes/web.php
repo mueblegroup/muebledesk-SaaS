@@ -1,9 +1,10 @@
 <?php
 
+use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\ApiKeyController;
 use App\Http\Controllers\Admin\SettingController as AdminSettingController;
-use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\ClientPortalController;
 use App\Http\Controllers\CompanyOnboardingController;
 use App\Http\Controllers\CustomerEInvoiceProfileController;
 use App\Http\Controllers\DashboardController;
@@ -26,11 +27,9 @@ use App\Http\Middleware\NormalizeClientCountryCode;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    if (auth()->check()) {
-        return redirect()->route('dashboard');
-    }
-
-    return redirect()->route('login');
+    return auth()->check()
+        ? redirect()->route('client-portal.dashboard')
+        : redirect()->route('login');
 });
 
 Route::post('/hitpay/webhook', [HitPayWebhookController::class, 'handle'])->name('hitpay.webhook');
@@ -42,14 +41,16 @@ Route::middleware('auth')->group(function () {
     Route::post('/two-factor-challenge', [TwoFactorAuthenticationController::class, 'verify'])->middleware('throttle:6,1')->name('two-factor.verify');
 });
 
+Route::middleware(['auth', 'verified', '2fa'])->group(function () {
+    Route::get('/client-portal', [ClientPortalController::class, 'index'])->name('client-portal.dashboard');
+    Route::get('/companies/create', [CompanyOnboardingController::class, 'create'])->name('companies.create');
+    Route::post('/companies', [CompanyOnboardingController::class, 'store'])->name('companies.store');
+    Route::post('/companies/{company}/switch', [ClientPortalController::class, 'switch'])->name('companies.switch');
+});
+
 Route::get('/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'verified', '2fa'])
     ->name('dashboard');
-
-Route::middleware(['auth', 'verified', '2fa'])->group(function () {
-    Route::get('/companies/create', [CompanyOnboardingController::class, 'create'])->name('companies.create');
-    Route::post('/companies', [CompanyOnboardingController::class, 'store'])->name('companies.store');
-});
 
 Route::middleware(['auth', '2fa'])->group(function () {
     Route::get('/search', [SearchController::class, 'index'])->name('search.index');
