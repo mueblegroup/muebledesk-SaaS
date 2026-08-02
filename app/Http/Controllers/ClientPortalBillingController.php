@@ -19,30 +19,21 @@ class ClientPortalBillingController extends Controller
         return view('client-portal.billing', [
             'company' => $company->load('subscription.plan'),
             'plans' => PlatformSubscriptionPlan::where('is_active', true)
-                ->orderBy('sort_order')
-                ->orderBy('price_per_seat')
-                ->get(),
-            'seatsUsed' => $company->seatsUsed(),
+                ->orderBy('sort_order')->orderBy('price')->get(),
         ]);
     }
 
     public function checkout(Request $request, Company $company, PlatformSubscriptionPlan $plan, StripePlatformBillingService $stripe): RedirectResponse
     {
         $this->authorizeCompany($request, $company, ownerOnly: true);
-
-        $validated = $request->validate([
-            'seats' => ['required', 'integer', 'min:'.$plan->minimum_seats],
-        ]);
-
-        $seats = (int) $validated['seats'];
-        abort_if($plan->maximum_seats && $seats > $plan->maximum_seats, 422, 'Seat quantity exceeds this plan limit.');
-        abort_if($seats < $company->seatsUsed(), 422, 'Seat quantity cannot be lower than current team usage.');
+        abort_unless($plan->is_active, 404);
+        $autoRenew = $request->boolean('auto_renew', $plan->auto_renew_default);
 
         try {
             $session = $stripe->createCheckoutSession(
                 $company,
                 $plan,
-                $seats,
+                $autoRenew,
                 route('client-portal.billing.success', $company),
                 route('client-portal.billing.index', $company)
             );
@@ -63,17 +54,26 @@ class ClientPortalBillingController extends Controller
             try {
                 $session = $stripe->retrieveCheckoutSession($sessionId);
                 $subscriptionData = is_array($session['subscription'] ?? null) ? $session['subscription'] : [];
+                $plan = PlatformSubscriptionPlan::find((int) ($session['metadata']['plan_id'] ?? 0));
+                $startsAt = isset($subscriptionData['current_period_start']) ? now()->setTimestamp($subscriptionData['current_period_start']) : now();
+                $expiresAt = isset($subscriptionData['current_period_end'])
+                    ? now()->setTimestamp($subscriptionData['current_period_end'])
+                    : $plan?->calculateExpiry($startsAt);
 
                 $company->subscription()->updateOrCreate([], [
-                    'platform_subscription_plan_id' => (int) ($session['metadata']['plan_id'] ?? 0) ?: null,
-                    'seats' => (int) ($session['metadata']['seats'] ?? 1),
+                    'platform_subscription_plan_id' => $plan?->id,
                     'status' => $subscriptionData['status'] ?? 'active',
                     'stripe_customer_id' => $session['customer'] ?? null,
                     'stripe_subscription_id' => $subscriptionData['id'] ?? ($session['subscription'] ?? null),
                     'stripe_checkout_session_id' => $session['id'] ?? $sessionId,
-                    'trial_ends_at' => isset($subscriptionData['trial_end']) ? now()->setTimestamp($subscriptionData['trial_end']) : null,
-                    'current_period_starts_at' => isset($subscriptionData['current_period_start']) ? now()->setTimestamp($subscriptionData['current_period_start']) : null,
-                    'current_period_ends_at' => isset($subscriptionData['current_period_end']) ? now()->setTimestamp($subscriptionData['current_period_end']) : null,
+                    'starts_at' => $startsAt,
+                    'expires_at' => $expiresAt,
+                    'current_period_starts_at' => $startsAt,
+                    'current_period_ends_at' => $expiresAt,
+                    'auto_renew' => (string) ($session['metadata']['auto_renew'] ?? '1') === '1',
+                    'is_enabled' => true,
+                    'renewal_failure_count' => 0,
+                    'last_renewal_error' => null,
                 ]);
             } catch (Throwable $exception) {
                 report($exception);
@@ -81,16 +81,29 @@ class ClientPortalBillingController extends Controller
         }
 
         return redirect()->route('client-portal.billing.index', $company)
-            ->with('success', 'Stripe subscription setup completed.');
+            ->with('success', 'Subscription activated successfully.');
+    }
+
+    public function toggleAutoRenew(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
+    {
+        $this->authorizeCompany($request, $company, ownerOnly: true);
+        $subscription = $company->subscription;
+        abort_unless($subscription, 404);
+
+        try {
+            $stripe->setAutoRenew($subscription, $request->boolean('auto_renew'));
+            return back()->with('success', 'Auto-renew setting updated.');
+        } catch (Throwable $exception) {
+            report($exception);
+            return back()->with('error', $exception->getMessage());
+        }
     }
 
     public function portal(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
     {
         $this->authorizeCompany($request, $company, ownerOnly: true);
-
         try {
-            $session = $stripe->createBillingPortalSession($company, route('client-portal.billing.index', $company));
-            return redirect()->away($session['url']);
+            return redirect()->away($stripe->createBillingPortalSession($company, route('client-portal.billing.index', $company))['url']);
         } catch (Throwable $exception) {
             report($exception);
             return back()->with('error', $exception->getMessage());
