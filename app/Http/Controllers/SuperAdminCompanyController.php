@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Models\PlatformSubscriptionPlan;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -12,9 +13,7 @@ class SuperAdminCompanyController extends Controller
 {
     public function index(Request $request): View
     {
-        $query = Company::query()
-            ->with(['owners:id,name,email', 'subscription.plan'])
-            ->withCount('users');
+        $query = Company::query()->with(['owners:id,name,email', 'subscription.plan'])->withCount('users');
 
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($builder) use ($search) {
@@ -27,11 +26,12 @@ class SuperAdminCompanyController extends Controller
 
         if ($status = $request->query('status')) {
             if ($status === 'active') {
-                $query->whereHas('subscription', fn ($builder) => $builder->whereIn('status', ['active', 'trialing']));
+                $query->whereHas('subscription', fn ($builder) => $builder->where('is_enabled', true)->whereIn('status', ['active', 'trialing'])->where(function ($date) {
+                    $date->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                }));
             } elseif ($status === 'inactive') {
                 $query->where(function ($builder) {
-                    $builder->whereDoesntHave('subscription')
-                        ->orWhereHas('subscription', fn ($subscription) => $subscription->whereNotIn('status', ['active', 'trialing']));
+                    $builder->whereDoesntHave('subscription')->orWhereHas('subscription', fn ($subscription) => $subscription->where('is_enabled', false)->orWhereNotIn('status', ['active', 'trialing'])->orWhere('expires_at', '<=', now()));
                 });
             }
         }
@@ -40,7 +40,9 @@ class SuperAdminCompanyController extends Controller
             'companies' => $query->latest()->paginate(25)->withQueryString(),
             'counts' => [
                 'all' => Company::count(),
-                'active' => Company::whereHas('subscription', fn ($builder) => $builder->whereIn('status', ['active', 'trialing']))->count(),
+                'active' => Company::whereHas('subscription', fn ($builder) => $builder->where('is_enabled', true)->whereIn('status', ['active', 'trialing'])->where(function ($date) {
+                    $date->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                }))->count(),
                 'without_plan' => Company::whereDoesntHave('subscription')->count(),
             ],
         ]);
@@ -54,7 +56,10 @@ class SuperAdminCompanyController extends Controller
             'subscription.plan',
         ]);
 
-        return view('superadmin.companies.show', compact('company'));
+        return view('superadmin.companies.show', [
+            'company' => $company,
+            'plans' => PlatformSubscriptionPlan::orderBy('sort_order')->orderBy('price')->get(),
+        ]);
     }
 
     public function update(Request $request, Company $company): RedirectResponse
@@ -71,11 +76,7 @@ class SuperAdminCompanyController extends Controller
             'country_code' => ['required', 'string', 'size:2'],
         ]);
 
-        $company->update([
-            ...$validated,
-            'currency' => strtoupper($validated['currency']),
-            'country_code' => strtoupper($validated['country_code']),
-        ]);
+        $company->update([...$validated, 'currency' => strtoupper($validated['currency']), 'country_code' => strtoupper($validated['country_code'])]);
 
         return back()->with('success', 'Company details updated.');
     }
