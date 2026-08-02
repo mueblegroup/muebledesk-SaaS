@@ -1,0 +1,65 @@
+/* Loaded only by the central client portal and superadmin shells. */
+
+html {
+    color-scheme: light;
+}
+
+html.dark {
+    color-scheme: dark;
+}
+
+html.dark main .bg-white,
+html.dark main .bg-white\/85,
+html.dark main .bg-white\/90,
+html.dark main .bg-slate-50,
+html.dark main .bg-slate-50\/60,
+html.dark main .bg-slate-50\/70,
+html.dark main .bg-slate-50\/80 {
+    background-color: rgb(15 23 42) !important;
+}
+
+html.dark main .border-slate-100,
+html.dark main .border-slate-200,
+html.dark main .border-slate-300 {
+    border-color: rgb(51 65 85) !important;
+}
+
+html.dark main .text-slate-950,
+html.dark main .text-slate-900,
+html.dark main .text-gray-900,
+html.dark main .text-gray-800 {
+    color: rgb(248 250 252) !important;
+}
+
+html.dark main .text-slate-800,
+html.dark main .text-slate-700,
+html.dark main .text-gray-700,
+html.dark main .text-gray-600 {
+    color: rgb(203 213 225) !important;
+}
+
+html.dark main .text-slate-600,
+html.dark main .text-slate-500,
+html.dark main .text-gray-500 {
+    color: rgb(148 163 184) !important;
+}
+
+html.dark main input,
+html.dark main select,
+html.dark main textarea {
+    border-color: rgb(71 85 105) !important;
+    background-color: rgb(15 23 42) !important;
+    color: rgb(241 245 249) !important;
+}
+
+html.dark main input:-webkit-autofill,
+html.dark main input:-webkit-autofill:hover,
+html.dark main input:-webkit-autofill:focus {
+    -webkit-text-fill-color: rgb(241 245 249);
+    box-shadow: 0 0 0 1000px rgb(15 23 42) inset;
+}
+
+html:not(.dark) main .dark\:bg-slate-900,
+html:not(.dark) main .dark\:bg-slate-950 {
+    color-scheme: light;
+}
