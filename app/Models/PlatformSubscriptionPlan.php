@@ -56,6 +56,12 @@ class PlatformSubscriptionPlan extends Model
 
     public function durationLabel(): string
     {
-        return $this->duration_value.' '.str($this->duration_unit)->singular($this->duration_value === 1)->toString();
+        $unit = $this->duration_value === 1 ? str($this->duration_unit)->singular() : $this->duration_unit;
+        return $this->duration_value.' '.$unit;
+    }
+
+    public function getPricePerSeatAttribute(): string
+    {
+        return (string) $this->price;
     }
 }
