@@ -2,11 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Model;
 
 class ActivityLog extends Model
 {
-    protected $fillable = ['actor_id', 'subject_type', 'subject_id', 'event', 'description', 'old_values', 'new_values', 'ip_address', 'user_agent'];
+    use BelongsToCompany;
+
+    protected $fillable = [
+        'company_id', 'actor_id', 'subject_type', 'subject_id', 'event', 'description',
+        'old_values', 'new_values', 'ip_address', 'user_agent',
+    ];
 
     protected $casts = ['old_values' => 'array', 'new_values' => 'array'];
 
