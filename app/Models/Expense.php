@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Expense extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, BelongsToCompany;
 
     public const CATEGORIES = [
         'hosting',
@@ -28,6 +29,7 @@ class Expense extends Model
     ];
 
     protected $fillable = [
+        'company_id',
         'recorded_by_user_id',
         'expense_number',
         'expense_date',
