@@ -18,7 +18,7 @@ class AppLayout extends Component
         $isCentralDomain = request()->getHost() === $centralDomain;
         $user = auth()->user();
 
-        if ($isCentralDomain && $user?->role === UserRoleEnum::Superadmin) {
+        if ($isCentralDomain && $user?->role === UserRoleEnum::SuperAdmin) {
             return view('layouts.superadmin');
         }
 
