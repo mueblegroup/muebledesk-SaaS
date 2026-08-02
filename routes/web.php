@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\ApiKeyController;
 use App\Http\Controllers\Admin\SettingController as AdminSettingController;
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\CompanyOnboardingController;
 use App\Http\Controllers\CustomerEInvoiceProfileController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EInvoiceController;
@@ -44,6 +45,11 @@ Route::middleware('auth')->group(function () {
 Route::get('/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'verified', '2fa'])
     ->name('dashboard');
+
+Route::middleware(['auth', 'verified', '2fa'])->group(function () {
+    Route::get('/companies/create', [CompanyOnboardingController::class, 'create'])->name('companies.create');
+    Route::post('/companies', [CompanyOnboardingController::class, 'store'])->name('companies.store');
+});
 
 Route::middleware(['auth', '2fa'])->group(function () {
     Route::get('/search', [SearchController::class, 'index'])->name('search.index');
