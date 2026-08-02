@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Company extends Model
 {
@@ -37,5 +38,20 @@ class Company extends Model
     public function owners(): BelongsToMany
     {
         return $this->users()->wherePivot('role', 'owner');
+    }
+
+    public function subscription(): HasOne
+    {
+        return $this->hasOne(CompanySubscription::class);
+    }
+
+    public function seatLimit(): ?int
+    {
+        return $this->subscription?->isActive() ? $this->subscription->seats : null;
+    }
+
+    public function seatsUsed(): int
+    {
+        return $this->users()->count();
     }
 }
