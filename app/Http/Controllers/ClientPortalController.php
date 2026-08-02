@@ -17,7 +17,11 @@ class ClientPortalController extends Controller
 
         $companies = $request->user()
             ->companies()
-            ->with('subscription.plan')
+            ->with([
+                'subscription.plan',
+                'users:id,name,email,role',
+            ])
+            ->withCount('clients')
             ->orderBy('name')
             ->get();
 
