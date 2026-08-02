@@ -13,17 +13,11 @@ use Illuminate\View\View;
 
 class AuthenticatedSessionController extends Controller
 {
-    /**
-     * Display the login view.
-     */
     public function create(): View
     {
         return view('auth.login');
     }
 
-    /**
-     * Handle an incoming authentication request.
-     */
     public function store(LoginRequest $request, ActivityLogger $activityLogger): RedirectResponse
     {
         $request->authenticate();
@@ -39,6 +33,10 @@ class AuthenticatedSessionController extends Controller
         $request->session()->put('two_factor_passed', true);
         $activityLogger->log('security.login', 'User logged in', Auth::user());
 
+        if (Auth::user()?->isSuperAdmin()) {
+            return redirect()->intended(route('superadmin.dashboard'));
+        }
+
         if ($request->attributes->has('currentCompany')) {
             return redirect()->intended(route('dashboard'));
         }
@@ -46,9 +44,6 @@ class AuthenticatedSessionController extends Controller
         return redirect()->intended(RouteServiceProvider::HOME);
     }
 
-    /**
-     * Destroy an authenticated session.
-     */
     public function destroy(Request $request, ActivityLogger $activityLogger): RedirectResponse
     {
         $activityLogger->log('security.logout', 'User logged out', Auth::user());
