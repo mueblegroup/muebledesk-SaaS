@@ -58,8 +58,11 @@ Route::middleware(['auth', 'verified', '2fa', 'role:superadmin'])
         Route::post('/plans', [SuperAdminController::class, 'storePlan'])->name('plans.store');
         Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->name('plans.update');
         Route::delete('/plans/{plan}', [SuperAdminController::class, 'destroyPlan'])->name('plans.destroy');
+
         Route::get('/users', [SuperAdminController::class, 'users'])->name('users.index');
         Route::post('/users', [SuperAdminController::class, 'storeUser'])->name('users.store');
+        Route::get('/users/{user}/edit', [SuperAdminController::class, 'editUser'])->name('users.edit');
+        Route::put('/users/{user}', [SuperAdminController::class, 'updateUser'])->name('users.update');
         Route::delete('/users/{user}', [SuperAdminController::class, 'destroyUser'])->name('users.destroy');
     });
 
