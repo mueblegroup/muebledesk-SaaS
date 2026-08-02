@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Enums\UserRoleEnum;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Providers\RouteServiceProvider;
@@ -16,7 +17,7 @@ use Illuminate\View\View;
 class RegisteredUserController extends Controller
 {
     /**
-     * Display the registration view.
+     * Display the client portal registration view.
      */
     public function create(): View
     {
@@ -24,7 +25,8 @@ class RegisteredUserController extends Controller
     }
 
     /**
-     * Handle an incoming registration request.
+     * Create a SaaS account. The user becomes a company administrator when
+     * they complete company onboarding in the client portal.
      *
      * @throws \Illuminate\Validation\ValidationException
      */
@@ -38,14 +40,17 @@ class RegisteredUserController extends Controller
 
         $user = User::create([
             'name' => $request->name,
-            'email' => $request->email,
+            'email' => strtolower($request->email),
             'password' => Hash::make($request->password),
+            'role' => UserRoleEnum::Admin,
+            'current_company_id' => null,
         ]);
 
         event(new Registered($user));
 
         Auth::login($user);
 
-        return redirect(RouteServiceProvider::HOME);
+        return redirect(RouteServiceProvider::HOME)
+            ->with('success', 'Your account is ready. Create your first company to enter the IMS.');
     }
 }
