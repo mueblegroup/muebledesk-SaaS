@@ -22,7 +22,6 @@
         ['label' => 'Overview', 'route' => 'superadmin.dashboard', 'active' => 'superadmin.dashboard', 'icon' => '▦'],
         ['label' => 'Users', 'route' => 'superadmin.users.index', 'active' => 'superadmin.users.*', 'icon' => '◎'],
         ['label' => 'Plans', 'route' => 'superadmin.plans.index', 'active' => 'superadmin.plans.*', 'icon' => '◇'],
-        ['label' => 'Profile & security', 'route' => 'profile.edit', 'active' => 'profile.*', 'icon' => '⚙'],
     ];
 @endphp
 <div x-data="{ sidebarOpen: false }" class="min-h-screen lg:flex">
@@ -57,7 +56,8 @@
             <div class="rounded-2xl bg-white/5 p-4">
                 <p class="truncate text-sm font-extrabold">{{ auth()->user()?->name }}</p>
                 <p class="truncate text-xs text-slate-400">{{ auth()->user()?->email }}</p>
-                <form method="POST" action="{{ route('logout') }}" class="mt-3">
+                <a href="{{ route('profile.edit') }}" class="mt-3 block w-full rounded-xl bg-white/10 px-3 py-2 text-center text-xs font-bold transition hover:bg-white/15">Profile & security</a>
+                <form method="POST" action="{{ route('logout') }}" class="mt-2">
                     @csrf
                     <button class="w-full rounded-xl bg-white/10 px-3 py-2 text-xs font-bold transition hover:bg-white/15">Log out</button>
                 </form>
