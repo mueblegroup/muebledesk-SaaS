@@ -1,3 +1,4 @@
+import '../css/saas-theme.css';
 import './bootstrap';
 import './theme';
 import Chart from 'chart.js/auto';
