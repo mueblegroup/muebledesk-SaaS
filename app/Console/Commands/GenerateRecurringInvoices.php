@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Company;
 use App\Models\Invoice;
 use App\Models\RecurringInvoice;
 use App\Models\Setting;
@@ -25,28 +26,44 @@ class GenerateRecurringInvoices extends Command
         $generatedCount = 0;
         $skippedCount = 0;
 
-        $this->info('Checking recurring invoices due on or before '.$runDate->toDateString().($dryRun ? ' (dry run)' : ''));
+        $due = RecurringInvoice::withoutGlobalScopes()
+            ->whereNotNull('company_id')
+            ->where('is_active', true)
+            ->whereDate('next_invoice_date', '<=', $runDate)
+            ->orderBy('company_id')
+            ->orderBy('next_invoice_date')
+            ->get(['id', 'company_id']);
 
-        $ids = RecurringInvoice::query()->where('is_active', true)->whereDate('next_invoice_date', '<=', $runDate)->orderBy('next_invoice_date')->pluck('id');
-        if ($ids->isEmpty()) {
+        if ($due->isEmpty()) {
             $this->info('No recurring invoices are due.');
             return Command::SUCCESS;
         }
 
-        foreach ($ids as $id) {
+        foreach ($due as $dueTemplate) {
+            $company = Company::query()->find($dueTemplate->company_id);
+            if (! $company) {
+                $skippedCount++;
+                Log::warning('Recurring invoice skipped because its company no longer exists.', ['recurring_invoice_id' => $dueTemplate->id]);
+                continue;
+            }
+
+            app()->instance(Company::class, $company);
+            app()->instance('currentCompany', $company);
+
             try {
-                DB::transaction(function () use ($id, $runDate, $dryRun, $numberGenerator, $activityLogger, $paymentGateway, &$generatedCount, &$skippedCount) {
-                    $recurring = RecurringInvoice::query()->with(['client', 'items'])->whereKey($id)->lockForUpdate()->first();
+                DB::transaction(function () use ($dueTemplate, $runDate, $dryRun, $numberGenerator, $activityLogger, $paymentGateway, &$generatedCount, &$skippedCount) {
+                    $recurring = RecurringInvoice::query()->with(['client', 'items'])
+                        ->whereKey($dueTemplate->id)->lockForUpdate()->first();
+
                     if (! $recurring || ! $recurring->is_active || $recurring->next_invoice_date?->greaterThan($runDate)) {
                         $skippedCount++;
                         return;
                     }
-                    if ($recurring->end_date && $recurring->next_invoice_date->greaterThan($recurring->end_date)) {
-                        if (! $dryRun) $recurring->update(['is_active' => false]);
-                        $skippedCount++;
-                        return;
-                    }
-                    if ($recurring->items->isEmpty()) {
+
+                    if (($recurring->end_date && $recurring->next_invoice_date->greaterThan($recurring->end_date)) || $recurring->items->isEmpty()) {
+                        if (! $dryRun && $recurring->end_date && $recurring->next_invoice_date->greaterThan($recurring->end_date)) {
+                            $recurring->update(['is_active' => false]);
+                        }
                         $skippedCount++;
                         return;
                     }
@@ -56,11 +73,12 @@ class GenerateRecurringInvoices extends Command
                     $dueDate = $invoiceDate->copy()->addDays(max(0, $dueDays));
 
                     if ($dryRun) {
-                        $this->line('Would generate invoice for '.$recurring->client?->name.' dated '.$invoiceDate->toDateString().' using '.$recurring->frequencyLabel());
+                        $this->line('Would generate invoice for '.$recurring->client?->name.' in '.$recurring->company->name);
                         return;
                     }
 
                     $invoice = Invoice::create([
+                        'company_id' => $recurring->company_id,
                         'client_id' => $recurring->client_id,
                         'employee_id' => $recurring->employee_id,
                         'invoice_number' => $numberGenerator->generate(new Invoice, 'invoice_number', 'invoice_prefix', 'invoice_number_format', 'INV', $invoiceDate, (int) $recurring->employee_id, 'invoice_number'),
@@ -80,6 +98,7 @@ class GenerateRecurringInvoices extends Command
 
                     foreach ($recurring->items as $item) {
                         $invoice->items()->create([
+                            'company_id' => $recurring->company_id,
                             'item_name' => $item->item_name,
                             'description' => $item->description,
                             'quantity' => $item->quantity,
@@ -94,7 +113,9 @@ class GenerateRecurringInvoices extends Command
 
                     $nextDate = $recurring->calculateNextInvoiceDate($invoiceDate);
                     $updates = ['next_invoice_date' => $nextDate];
-                    if ($recurring->end_date && $nextDate->greaterThan($recurring->end_date)) $updates['is_active'] = false;
+                    if ($recurring->end_date && $nextDate->greaterThan($recurring->end_date)) {
+                        $updates['is_active'] = false;
+                    }
                     $recurring->update($updates);
 
                     $activityLogger->log('recurring_invoice.generated', 'Recurring invoice generated '.$invoice->invoice_number, $invoice, [], [
@@ -104,13 +125,19 @@ class GenerateRecurringInvoices extends Command
                         'payment_gateway' => Setting::get('payment_gateway', 'hitpay'),
                     ]);
 
-                    $this->info('Generated '.$invoice->invoice_number.' for '.$recurring->client?->name.'. Next due: '.$nextDate->toDateString());
                     $generatedCount++;
                 });
             } catch (\Throwable $e) {
                 $skippedCount++;
-                $this->error('Failed recurring invoice #'.$id.': '.$e->getMessage());
-                Log::error('Recurring Invoice Generation Error', ['recurring_invoice_id' => $id, 'message' => $e->getMessage(), 'exception' => $e]);
+                Log::error('Recurring Invoice Generation Error', [
+                    'recurring_invoice_id' => $dueTemplate->id,
+                    'company_id' => $dueTemplate->company_id,
+                    'message' => $e->getMessage(),
+                    'exception' => $e,
+                ]);
+            } finally {
+                app()->forgetInstance('currentCompany');
+                app()->forgetInstance(Company::class);
             }
         }
 
