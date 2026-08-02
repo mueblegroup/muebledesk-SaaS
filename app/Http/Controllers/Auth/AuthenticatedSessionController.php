@@ -39,6 +39,10 @@ class AuthenticatedSessionController extends Controller
         $request->session()->put('two_factor_passed', true);
         $activityLogger->log('security.login', 'User logged in', Auth::user());
 
+        if ($request->attributes->has('currentCompany')) {
+            return redirect()->intended(route('dashboard'));
+        }
+
         return redirect()->intended(RouteServiceProvider::HOME);
     }
 
