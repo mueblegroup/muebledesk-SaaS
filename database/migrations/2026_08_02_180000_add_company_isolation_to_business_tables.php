@@ -42,6 +42,10 @@ return new class extends Migration
             });
         }
 
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         $this->backfillFromDirectUsers();
         $this->backfillFromParents();
         $this->backfillLegacySingleCompanyData();
