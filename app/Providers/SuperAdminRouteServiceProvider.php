@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Http\Controllers\ClientPortalBillingController;
+use App\Http\Controllers\SystemGuideController;
 use App\Http\Controllers\SuperAdmin\CompanySubscriptionController;
 use App\Http\Controllers\SuperAdmin\SubscriptionPlanController;
 use App\Http\Controllers\SuperAdminCompanyController;
@@ -28,8 +29,11 @@ class SuperAdminRouteServiceProvider extends ServiceProvider
                 Route::delete('/subscription-plans/{plan}', [SubscriptionPlanController::class, 'destroy'])->name('subscription-plans.destroy');
             });
 
-        Route::middleware(['web', 'auth', 'verified', '2fa'])
-            ->patch('/client-portal/companies/{company}/billing/auto-renew', [ClientPortalBillingController::class, 'toggleAutoRenew'])
-            ->name('client-portal.billing.auto-renew');
+        Route::middleware(['web', 'auth', 'verified', '2fa'])->group(function (): void {
+            Route::patch('/client-portal/companies/{company}/billing/auto-renew', [ClientPortalBillingController::class, 'toggleAutoRenew'])
+                ->name('client-portal.billing.auto-renew');
+            Route::get('/client-portal/system-guide', [SystemGuideController::class, 'clientPortal'])
+                ->name('client-portal.system-guide');
+        });
     }
 }
