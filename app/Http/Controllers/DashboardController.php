@@ -25,19 +25,14 @@ class DashboardController extends Controller
             return redirect()->route('login');
         }
 
-        $company = $user->currentCompany;
-        $host = request()->getHost();
-        $centralDomain = (string) config('saas.central_domain');
+        if (! request()->attributes->has('currentCompany')) {
+            $centralUrl = sprintf(
+                '%s://%s/client-portal',
+                config('saas.scheme', 'https'),
+                config('saas.central_domain')
+            );
 
-        if ($host === $centralDomain || ! $company) {
-            return redirect()->route('client-portal.dashboard');
-        }
-
-        $expectedHost = $company->slug.'.'.config('saas.root_domain');
-
-        if ($host !== $expectedHost) {
-            return redirect()->route('client-portal.dashboard')
-                ->with('error', 'Select a company workspace from the client portal.');
+            return redirect()->away($centralUrl);
         }
 
         return match ($user->role) {
