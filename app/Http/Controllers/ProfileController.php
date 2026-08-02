@@ -14,9 +14,6 @@ use Illuminate\View\View;
 
 class ProfileController extends Controller
 {
-    /**
-     * Display the user's profile form.
-     */
     public function edit(Request $request, TwoFactorService $twoFactorService): View
     {
         $user = $request->user();
@@ -38,25 +35,27 @@ class ProfileController extends Controller
         ]);
     }
 
-    /**
-     * Update the user's profile information.
-     */
     public function update(ProfileUpdateRequest $request): RedirectResponse
     {
-        $request->user()->fill($request->validated());
+        $user = $request->user();
+        $user->fill($request->validated());
+        $user->country_code = strtoupper($request->validated('country_code'));
+        $user->profile_completed_at = now();
 
-        if ($request->user()->isDirty('email')) {
-            $request->user()->email_verified_at = null;
+        if ($user->isDirty('email')) {
+            $user->email_verified_at = null;
         }
 
-        $request->user()->save();
+        $user->save();
+
+        if (! $user->hasVerifiedEmail()) {
+            $user->sendEmailVerificationNotification();
+            return Redirect::route('verification.notice')->with('status', 'verification-link-sent');
+        }
 
         return Redirect::route('profile.edit')->with('status', 'profile-updated');
     }
 
-    /**
-     * Update the linked customer/client business and tax profile.
-     */
     public function updateBusinessDetails(Request $request, ActivityLogger $activityLogger): RedirectResponse
     {
         $user = $request->user();
@@ -85,36 +84,19 @@ class ProfileController extends Controller
 
         $old = $client->only(array_keys($validated));
         $client->update($validated);
-
-        $activityLogger->log(
-            'customer_profile.updated',
-            'Customer business/tax profile updated by customer',
-            $client,
-            $old,
-            $client->fresh()->only(array_keys($validated))
-        );
+        $activityLogger->log('customer_profile.updated', 'Customer business/tax profile updated by customer', $client, $old, $client->fresh()->only(array_keys($validated)));
 
         return Redirect::route('profile.edit')->with('status', 'business-profile-updated');
     }
 
-    /**
-     * Delete the user's account.
-     */
     public function destroy(Request $request): RedirectResponse
     {
-        $request->validateWithBag('userDeletion', [
-            'password' => ['required', 'current_password'],
-        ]);
-
+        $request->validateWithBag('userDeletion', ['password' => ['required', 'current_password']]);
         $user = $request->user();
-
         Auth::logout();
-
         $user->delete();
-
         $request->session()->invalidate();
         $request->session()->regenerateToken();
-
         return Redirect::to('/');
     }
 }
