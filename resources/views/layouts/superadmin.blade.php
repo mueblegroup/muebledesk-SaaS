@@ -39,7 +39,7 @@
             @foreach ([
                 ['Dashboard', 'superadmin.dashboard', 'superadmin.dashboard', '▦'],
                 ['Plans', 'superadmin.plans.index', 'superadmin.plans.*', '◇'],
-                ['Superadmins', 'superadmin.users.index', 'superadmin.users.*', '◎'],
+                ['Users', 'superadmin.users.index', 'superadmin.users.*', '◎'],
                 ['Profile & security', 'profile.edit', 'profile.*', '⚙'],
             ] as [$label, $route, $active, $icon])
                 <a href="{{ route($route) }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ request()->routeIs($active) ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}"><span class="flex h-8 w-8 items-center justify-center rounded-xl bg-white/10">{{ $icon }}</span>{{ $label }}</a>
