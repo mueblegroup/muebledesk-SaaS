@@ -5,13 +5,15 @@
         <p class="mt-2 text-sm text-slate-500">Create your verified client identity first. Company and billing setup follows after email verification.</p>
     </div>
 
-    <div class="grid gap-3 sm:grid-cols-3">
-        @foreach(['google' => 'Google', 'microsoft' => 'Microsoft', 'apple' => 'Apple'] as $provider => $label)
-            <a href="{{ route('social.redirect', $provider) }}" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-extrabold text-slate-700 hover:border-indigo-300 hover:text-indigo-600">{{ $label }}</a>
-        @endforeach
-    </div>
+    @if (class_exists(\Laravel\Socialite\Facades\Socialite::class))
+        <div class="grid gap-3 sm:grid-cols-3">
+            @foreach(['google' => 'Google', 'microsoft' => 'Microsoft', 'apple' => 'Apple'] as $provider => $label)
+                <a href="{{ route('social.redirect', $provider) }}" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-extrabold text-slate-700 hover:border-indigo-300 hover:text-indigo-600">{{ $label }}</a>
+            @endforeach
+        </div>
 
-    <div class="my-6 flex items-center gap-3"><div class="h-px flex-1 bg-slate-200"></div><span class="text-xs font-bold uppercase text-slate-400">or use email</span><div class="h-px flex-1 bg-slate-200"></div></div>
+        <div class="my-6 flex items-center gap-3"><div class="h-px flex-1 bg-slate-200"></div><span class="text-xs font-bold uppercase text-slate-400">or use email</span><div class="h-px flex-1 bg-slate-200"></div></div>
+    @endif
 
     <form method="POST" action="{{ route('register') }}" class="space-y-4">
         @csrf
