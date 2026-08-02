@@ -28,6 +28,19 @@ class RouteServiceProvider extends ServiceProvider
 
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
+
+            // Keep the public SaaS homepage separate from the authenticated
+            // client portal and company IMS workspaces. This route is declared
+            // after routes/web.php so it replaces the legacy root redirect.
+            Route::middleware('web')->get('/', function () {
+                if (! auth()->check()) {
+                    return view('landing');
+                }
+
+                return auth()->user()->isSuperAdmin()
+                    ? redirect()->route('superadmin.dashboard')
+                    : redirect()->route('client-portal.dashboard');
+            })->name('landing');
         });
     }
 }
