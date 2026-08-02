@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use BaconQrCode\Renderer\Image\SvgImageBackEnd;
 use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
@@ -11,11 +12,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class EInvoice extends Model
 {
-    use HasFactory;
+    use BelongsToCompany, HasFactory;
 
     protected $table = 'einvoices';
 
     protected $fillable = [
+        'company_id',
         'invoice_id', 'einvoice_submission_id', 'environment', 'document_type',
         'document_version', 'status', 'internal_document_number', 'submission_uid',
         'myinvois_uuid', 'long_id', 'document_hash', 'request_payload', 'response_payload',
