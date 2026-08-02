@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\ApiKey;
+use App\Models\Company;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -17,32 +18,37 @@ class AuthenticateApiKey
             return response()->json(['message' => 'Missing API key. Use Authorization: Bearer <api_key> or X-API-Key.'], 401);
         }
 
-        $apiKey = ApiKey::query()
+        $apiKey = ApiKey::withoutGlobalScopes()
             ->where('key_hash', ApiKey::hashKey($plainTextKey))
             ->first();
 
-        if (! $apiKey || ! $apiKey->isUsable($request->ip())) {
+        if (! $apiKey || ! $apiKey->company_id || ! $apiKey->isUsable($request->ip())) {
             return response()->json(['message' => 'Invalid, expired, revoked, or IP-restricted API key.'], 401);
         }
+
+        $company = Company::query()->find($apiKey->company_id);
+        if (! $company) {
+            return response()->json(['message' => 'The API key company no longer exists.'], 401);
+        }
+
+        app()->instance(Company::class, $company);
+        app()->instance('currentCompany', $company);
+        $request->attributes->set('currentCompany', $company);
+        $request->attributes->set('api_key', $apiKey);
 
         if ($permission && ! $apiKey->canAccess($permission)) {
             return response()->json(['message' => 'This API key does not have permission: '.$permission], 403);
         }
 
         $apiKey->forceFill(['last_used_at' => now()])->save();
-        $request->attributes->set('api_key', $apiKey);
 
         return $next($request);
     }
 
     private function extractKey(Request $request): ?string
     {
-        $bearer = $request->bearerToken();
-        if ($bearer) {
-            return trim($bearer);
-        }
+        $key = $request->bearerToken() ?: $request->header('X-API-Key');
 
-        $headerKey = $request->header('X-API-Key');
-        return $headerKey ? trim($headerKey) : null;
+        return $key ? trim($key) : null;
     }
 }
