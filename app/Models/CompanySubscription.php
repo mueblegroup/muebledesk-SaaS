@@ -74,4 +74,14 @@ class CompanySubscription extends Model
             'last_renewal_error' => null,
         ])->save();
     }
+
+    public function getSeatsAttribute(): int
+    {
+        $plan = $this->relationLoaded('plan') ? $this->plan : $this->plan()->first();
+        if (! $plan || is_null($plan->admin_limit) || is_null($plan->employee_limit) || is_null($plan->client_limit)) {
+            return PHP_INT_MAX;
+        }
+
+        return $plan->admin_limit + $plan->employee_limit + $plan->client_limit;
+    }
 }
