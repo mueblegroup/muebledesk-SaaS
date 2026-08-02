@@ -11,21 +11,13 @@ use Illuminate\View\View;
 
 class CompanyOnboardingController extends Controller
 {
-    public function create(Request $request): View|RedirectResponse
+    public function create(Request $request): View
     {
-        if ($request->user()->currentCompany) {
-            return redirect()->route('dashboard');
-        }
-
         return view('onboarding.company');
     }
 
     public function store(Request $request): RedirectResponse
     {
-        if ($request->user()->currentCompany) {
-            return redirect()->route('dashboard');
-        }
-
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'registration_number' => ['nullable', 'string', 'max:100'],
@@ -65,7 +57,7 @@ class CompanyOnboardingController extends Controller
             return $company;
         });
 
-        return redirect()->route('dashboard')
-            ->with('success', "{$company->name} is ready. You can start invoicing now.");
+        return redirect()->route('client-portal.dashboard')
+            ->with('success', "{$company->name} is ready. Open its workspace when you are ready to start invoicing.");
     }
 }
