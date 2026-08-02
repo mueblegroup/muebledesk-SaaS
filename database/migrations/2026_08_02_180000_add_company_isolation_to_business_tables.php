@@ -55,9 +55,7 @@ return new class extends Migration
             }
 
             Schema::table($table, function (Blueprint $blueprint): void {
-                $blueprint->dropForeign(['company_id']);
-                $blueprint->dropIndex([$blueprint->getTable().'_company_id_index']);
-                $blueprint->dropColumn('company_id');
+                $blueprint->dropConstrainedForeignId('company_id');
             });
         }
     }
