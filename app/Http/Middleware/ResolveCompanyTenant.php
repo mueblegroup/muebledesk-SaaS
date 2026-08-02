@@ -1,0 +1,64 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use App\Enums\UserRoleEnum;
+use App\Models\Company;
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class ResolveCompanyTenant
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $host = strtolower($request->getHost());
+        $centralDomain = strtolower((string) config('saas.central_domain'));
+        $rootDomain = strtolower((string) config('saas.root_domain'));
+
+        if ($host === $centralDomain) {
+            return $next($request);
+        }
+
+        $suffix = '.'.$rootDomain;
+
+        if (! str_ends_with($host, $suffix)) {
+            abort(404);
+        }
+
+        $slug = substr($host, 0, -strlen($suffix));
+
+        if ($slug === '' || str_contains($slug, '.')) {
+            abort(404);
+        }
+
+        $company = Company::query()->where('slug', $slug)->firstOrFail();
+
+        app()->instance(Company::class, $company);
+        app()->instance('currentCompany', $company);
+        $request->attributes->set('currentCompany', $company);
+
+        if ($request->user()) {
+            $membership = $request->user()
+                ->companies()
+                ->whereKey($company->getKey())
+                ->first();
+
+            abort_unless($membership, 403, 'You do not have access to this company workspace.');
+
+            if ((int) $request->user()->current_company_id !== (int) $company->getKey()) {
+                $request->user()->forceFill([
+                    'current_company_id' => $company->getKey(),
+                ])->save();
+            }
+
+            if ($membership->pivot->role === 'owner' && ! $request->user()->isAdmin()) {
+                $request->user()->forceFill([
+                    'role' => UserRoleEnum::Admin,
+                ])->save();
+            }
+        }
+
+        return $next($request);
+    }
+}
