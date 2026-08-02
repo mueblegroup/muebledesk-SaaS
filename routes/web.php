@@ -20,6 +20,7 @@ use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\RecurringInvoiceController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SuperAdminController;
+use App\Http\Controllers\SuperAdminPlanController;
 use App\Http\Controllers\SystemGuideController;
 use App\Http\Controllers\TwoFactorAuthenticationController;
 use App\Http\Controllers\UserController;
@@ -54,10 +55,10 @@ Route::middleware(['auth', 'verified', '2fa', 'role:superadmin'])
     ->name('superadmin.')
     ->group(function () {
         Route::get('/dashboard', [SuperAdminController::class, 'dashboard'])->name('dashboard');
-        Route::get('/plans', [SuperAdminController::class, 'plans'])->name('plans.index');
-        Route::post('/plans', [SuperAdminController::class, 'storePlan'])->name('plans.store');
-        Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->name('plans.update');
-        Route::delete('/plans/{plan}', [SuperAdminController::class, 'destroyPlan'])->name('plans.destroy');
+        Route::get('/plans', [SuperAdminPlanController::class, 'index'])->name('plans.index');
+        Route::post('/plans', [SuperAdminPlanController::class, 'store'])->name('plans.store');
+        Route::put('/plans/{plan}', [SuperAdminPlanController::class, 'update'])->name('plans.update');
+        Route::delete('/plans/{plan}', [SuperAdminPlanController::class, 'destroy'])->name('plans.destroy');
 
         Route::get('/users', [SuperAdminController::class, 'users'])->name('users.index');
         Route::post('/users', [SuperAdminController::class, 'storeUser'])->name('users.store');
