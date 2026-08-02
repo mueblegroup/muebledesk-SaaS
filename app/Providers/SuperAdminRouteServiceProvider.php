@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Http\Controllers\ClientPortalBillingController;
 use App\Http\Controllers\SystemGuideController;
 use App\Http\Controllers\SuperAdmin\CompanySubscriptionController;
+use App\Http\Controllers\SuperAdmin\PlatformController;
 use App\Http\Controllers\SuperAdmin\SubscriptionPlanController;
 use App\Http\Controllers\SuperAdminCompanyController;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
@@ -27,6 +28,10 @@ class SuperAdminRouteServiceProvider extends ServiceProvider
                 Route::post('/subscription-plans', [SubscriptionPlanController::class, 'store'])->name('subscription-plans.store');
                 Route::put('/subscription-plans/{plan}', [SubscriptionPlanController::class, 'update'])->name('subscription-plans.update');
                 Route::delete('/subscription-plans/{plan}', [SubscriptionPlanController::class, 'destroy'])->name('subscription-plans.destroy');
+
+                Route::get('/payments', [PlatformController::class, 'payments'])->name('payments.index');
+                Route::get('/settings', [PlatformController::class, 'settings'])->name('settings.index');
+                Route::put('/settings', [PlatformController::class, 'updateSettings'])->name('settings.update');
             });
 
         Route::middleware(['web', 'auth', 'verified', '2fa'])->group(function (): void {
