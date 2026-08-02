@@ -1,27 +1,42 @@
+const STORAGE_KEY = 'muebledesk-theme';
+const media = window.matchMedia('(prefers-color-scheme: dark)');
+
+const normalizeTheme = (theme) => ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
+
 const applyTheme = (theme) => {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const shouldUseDark = theme === 'dark' || (theme === 'system' && prefersDark);
+    const selectedTheme = normalizeTheme(theme);
+    const shouldUseDark = selectedTheme === 'dark' || (selectedTheme === 'system' && media.matches);
 
     document.documentElement.classList.toggle('dark', shouldUseDark);
-    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.theme = selectedTheme;
+    document.documentElement.style.colorScheme = shouldUseDark ? 'dark' : 'light';
+
+    return selectedTheme;
 };
 
-const getStoredTheme = () => localStorage.getItem('theme') || 'system';
+const getStoredTheme = () => normalizeTheme(localStorage.getItem(STORAGE_KEY) || 'system');
 
-window.setTheme = (theme) => {
-    const selectedTheme = ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
-
-    localStorage.setItem('theme', selectedTheme);
+const setStoredTheme = (theme) => {
+    const selectedTheme = normalizeTheme(theme);
+    localStorage.setItem(STORAGE_KEY, selectedTheme);
     applyTheme(selectedTheme);
+
+    window.dispatchEvent(new CustomEvent('mueble-theme-changed', { detail: selectedTheme }));
     window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: selectedTheme } }));
 };
 
+window.setTheme = setStoredTheme;
 window.getTheme = getStoredTheme;
+window.muebleTheme = {
+    get: getStoredTheme,
+    set: setStoredTheme,
+};
 
 applyTheme(getStoredTheme());
 
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+media.addEventListener('change', () => {
     if (getStoredTheme() === 'system') {
         applyTheme('system');
+        window.dispatchEvent(new CustomEvent('mueble-theme-changed', { detail: 'system' }));
     }
 });
