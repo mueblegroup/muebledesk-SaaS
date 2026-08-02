@@ -2,9 +2,7 @@
 
 namespace App\Models;
 
-use App\Models\Client;
-use App\Models\RecurringInvoiceItem;
-use App\Models\User;
+use App\Models\Concerns\BelongsToCompany;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,9 +10,10 @@ use Illuminate\Support\Collection;
 
 class RecurringInvoice extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToCompany;
 
     protected $fillable = [
+        'company_id',
         'client_id',
         'invoice_prefix',
         'frequency',
