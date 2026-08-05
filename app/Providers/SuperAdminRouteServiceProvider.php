@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Http\Controllers\ClientPortalBillingController;
+use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\SystemGuideController;
 use App\Http\Controllers\SuperAdmin\CompanySubscriptionController;
 use App\Http\Controllers\SuperAdmin\PlatformController;
@@ -15,6 +16,15 @@ class SuperAdminRouteServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
+        Route::middleware('web')->group(function (): void {
+            Route::get('/', [MarketingController::class, 'home'])->name('marketing.home');
+            Route::get('/features', [MarketingController::class, 'features'])->name('marketing.features');
+            Route::get('/how-it-works', [MarketingController::class, 'howItWorks'])->name('marketing.how-it-works');
+            Route::get('/security', [MarketingController::class, 'security'])->name('marketing.security');
+            Route::get('/pricing', [MarketingController::class, 'pricing'])->name('marketing.pricing');
+            Route::get('/contact', [MarketingController::class, 'contact'])->name('marketing.contact');
+        });
+
         Route::middleware(['web', 'auth', 'verified', '2fa', 'role:superadmin'])
             ->prefix('superadmin')
             ->name('superadmin.')
