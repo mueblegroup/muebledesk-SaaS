@@ -49,16 +49,20 @@ jobs:
       - name: Prepare application
         run: |
           cp .env.example .env
+          mkdir -p bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs
           php artisan key:generate
           npm ci
           npm run build
         env:
           APP_ENV: testing
 
+      - name: Audit production npm dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Run migrations and tests
         run: |
           php artisan migrate --force
-          php artisan test
+          ./vendor/bin/phpunit --configuration phpunit.xml
         env:
           APP_ENV: testing
           APP_DEBUG: 'false'
@@ -73,11 +77,13 @@ jobs:
           QUEUE_CONNECTION: sync
           MAIL_MAILER: array
 
-      - name: Verify production caches
+      - name: Verify production caches and scheduler
         run: |
+          mkdir -p bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs
           php artisan route:cache
           php artisan config:cache
           php artisan view:cache
+          php artisan schedule:list
         env:
           APP_ENV: production
           APP_DEBUG: 'false'
