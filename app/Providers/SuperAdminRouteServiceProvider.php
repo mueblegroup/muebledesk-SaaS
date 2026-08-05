@@ -17,12 +17,19 @@ class SuperAdminRouteServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Route::middleware('web')->group(function (): void {
-            Route::get('/', [MarketingController::class, 'home'])->name('marketing.home');
             Route::get('/features', [MarketingController::class, 'features'])->name('marketing.features');
             Route::get('/how-it-works', [MarketingController::class, 'howItWorks'])->name('marketing.how-it-works');
             Route::get('/security', [MarketingController::class, 'security'])->name('marketing.security');
             Route::get('/pricing', [MarketingController::class, 'pricing'])->name('marketing.pricing');
             Route::get('/contact', [MarketingController::class, 'contact'])->name('marketing.contact');
+        });
+
+        // Register the public homepage after all service providers have booted.
+        // This ensures it wins over the legacy root redirect still present in routes/web.php.
+        $this->app->booted(function (): void {
+            Route::middleware('web')
+                ->get('/', [MarketingController::class, 'home'])
+                ->name('marketing.home');
         });
 
         Route::middleware(['web', 'auth', 'verified', '2fa', 'role:superadmin'])
