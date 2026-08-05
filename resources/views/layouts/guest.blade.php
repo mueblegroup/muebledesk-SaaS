@@ -1,43 +1,69 @@
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
-    <head>
-        <script>
-            (function () {
-                const theme = localStorage.getItem('theme') || 'system';
-                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && prefersDark));
-            })();
-        </script>
-
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="csrf-token" content="{{ csrf_token() }}">
-        <link rel="shortcut icon" type="image/x-icon" href="{{ asset('images/favicon.ico') }}">
-
-        <title>{{ config('app.name', 'Mueble Desk') }}</title>
-
-        <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />
-
-        @vite(['resources/css/app.css', 'resources/js/app.js'])
-    </head>
-    <body class="font-sans antialiased soft-gradient">
-        <main class="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6 lg:px-8">
-            <div class="w-full max-w-md">
-                <div class="mb-8 text-center">
-                    <a href="{{ url('/') }}" class="inline-flex items-center gap-3 rounded-3xl bg-slate-950 px-5 py-4 text-white shadow-2xl shadow-indigo-500/10 dark:bg-white dark:text-slate-950">
-                        <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 text-xl font-black dark:bg-slate-950/10">M</span>
-                        <span class="text-left">
-                            <span class="block text-sm font-extrabold leading-tight">{{ config('app.name', 'Mueble Desk') }}</span>
-                            <span class="block text-xs text-white/70 dark:text-slate-600">Modern invoice workspace</span>
-                        </span>
-                    </a>
-                </div>
-
-                <div class="glass-panel p-6 sm:p-8">
-                    {{ $slot }}
-                </div>
+<head>
+    <script>
+        (() => {
+            const theme = localStorage.getItem('theme') || 'system';
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && prefersDark));
+        })();
+    </script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="shortcut icon" type="image/x-icon" href="{{ asset('images/favicon.ico') }}">
+    <title>{{ config('app.name', 'MuebleDesk') }}</title>
+    <link rel="preconnect" href="https://fonts.bunny.net">
+    <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+</head>
+<body class="font-sans antialiased soft-gradient">
+<main class="min-h-screen lg:grid lg:grid-cols-[minmax(0,.9fr)_minmax(520px,1.1fr)]">
+    <section class="relative hidden overflow-hidden bg-slate-950 p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
+        <div class="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-indigo-500/30 blur-3xl"></div>
+        <div class="absolute -bottom-32 right-0 h-96 w-96 rounded-full bg-cyan-400/20 blur-3xl"></div>
+        <div class="relative">
+            <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3">
+                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-xl font-black shadow-xl shadow-indigo-500/20">M</span>
+                <span><span class="block text-lg font-black">{{ config('app.name', 'MuebleDesk') }}</span><span class="block text-xs text-slate-400">Business operations platform</span></span>
+            </a>
+        </div>
+        <div class="relative max-w-xl">
+            <span class="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-extrabold uppercase tracking-[.18em] text-indigo-200">One secure workspace</span>
+            <h1 class="mt-6 text-4xl font-black leading-tight tracking-tight xl:text-5xl">Run quotations, invoices, payments and e-Invoices without fragmented tools.</h1>
+            <p class="mt-5 text-base leading-7 text-slate-300">MuebleDesk gives each company an isolated workspace for clients, recurring billing, expenses, reporting, Malaysian MyInvois workflows and team access.</p>
+            <div class="mt-8 grid gap-3 sm:grid-cols-2">
+                @foreach ([
+                    ['Verified onboarding', 'Email verification and secure account controls.'],
+                    ['Company isolation', 'Separate data, users and subscriptions per workspace.'],
+                    ['Complete billing flow', 'Quotation to invoice, payment and receipt.'],
+                    ['Malaysia ready', 'MyInvois e-Invoice submission and tracking.'],
+                ] as [$title, $text])
+                    <div class="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+                        <p class="text-sm font-extrabold">{{ $title }}</p>
+                        <p class="mt-1 text-xs leading-5 text-slate-400">{{ $text }}</p>
+                    </div>
+                @endforeach
             </div>
-        </main>
-    </body>
+        </div>
+        <p class="relative text-xs text-slate-500">Secure SaaS invoicing and business operations by Mueble Group.</p>
+    </section>
+
+    <section class="flex min-h-screen items-center justify-center px-4 py-8 sm:px-8 lg:px-10 xl:px-16">
+        <div class="w-full max-w-2xl">
+            <div class="mb-7 flex items-center justify-between lg:hidden">
+                <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3">
+                    <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-lg font-black text-white dark:bg-white dark:text-slate-950">M</span>
+                    <span class="font-black">{{ config('app.name', 'MuebleDesk') }}</span>
+                </a>
+                <a href="{{ route('marketing.home') }}" class="text-sm font-bold text-slate-500 hover:text-indigo-600">Back to website</a>
+            </div>
+            <div class="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-2xl shadow-slate-950/10 backdrop-blur-xl sm:p-8 dark:border-slate-800 dark:bg-slate-900/90">
+                {{ $slot }}
+            </div>
+            <p class="mt-6 text-center text-xs leading-5 text-slate-500">By continuing, you agree to use MuebleDesk responsibly and keep your account credentials secure.</p>
+        </div>
+    </section>
+</main>
+</body>
 </html>
