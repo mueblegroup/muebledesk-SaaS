@@ -31,16 +31,26 @@ check_env_not_equal() {
 printf 'MuebleDesk production readiness checks\n'
 printf '======================================\n'
 
+# Laravel file cache and scheduler commands expect these directories to exist.
+mkdir -p \
+  bootstrap/cache \
+  storage/framework/cache/data \
+  storage/framework/sessions \
+  storage/framework/views \
+  storage/logs
+
+check_command 'Storage directories are writable' test -w storage/framework/cache/data
 check_command 'PHP version' php -r 'exit(version_compare(PHP_VERSION, "8.3.0", ">=") ? 0 : 1);'
 check_command 'Composer dependency validation' composer validate --strict --no-check-publish
 check_command 'Composer security audit' composer audit --locked --no-dev
 check_command 'Application boots' php artisan about --only=environment
 check_command 'Database migrations are current' php artisan migrate:status
-check_command 'Automated test suite' php artisan test
+check_command 'Automated test suite' ./vendor/bin/phpunit --configuration phpunit.xml
 check_command 'Route cache builds' php artisan route:cache
 check_command 'Configuration cache builds' php artisan config:cache
 check_command 'Blade view cache builds' php artisan view:cache
 check_command 'Scheduler is registered' php artisan schedule:list
+check_command 'Production npm dependency audit' npm audit --omit=dev --audit-level=high
 
 check_env_not_equal 'queue.default' 'sync'
 check_env_not_equal 'app.debug' '1'
