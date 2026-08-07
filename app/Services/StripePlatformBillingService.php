@@ -96,6 +96,13 @@ class StripePlatformBillingService
         return $this->request('GET', '/v1/checkout/sessions/'.$sessionId, ['expand[]' => 'subscription']);
     }
 
+    public function retrieveSubscription(string $subscriptionId): array
+    {
+        return $this->request('GET', '/v1/subscriptions/'.$subscriptionId, [
+            'expand[]' => 'latest_invoice.payment_intent',
+        ]);
+    }
+
     public function verifyWebhook(string $payload, string $signatureHeader): array
     {
         $secret = (string) config('services.stripe.platform_webhook_secret');
