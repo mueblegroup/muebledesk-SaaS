@@ -46,6 +46,7 @@ class StripePlatformBillingService
             'metadata[company_id]' => (string) $company->id,
             'metadata[plan_id]' => (string) $plan->id,
             'metadata[auto_renew]' => $autoRenew ? '1' : '0',
+            'metadata[purchase_type]' => 'subscription',
             'subscription_data[metadata][company_id]' => (string) $company->id,
             'subscription_data[metadata][plan_id]' => (string) $plan->id,
         ];
@@ -65,6 +66,37 @@ class StripePlatformBillingService
         ]);
 
         return $session;
+    }
+
+    public function createExtensionCheckoutSession(Company $company, CompanySubscription $subscription, PlatformSubscriptionPlan $plan, string $successUrl, string $cancelUrl): array
+    {
+        if (! $subscription->isActive() || (int) $subscription->platform_subscription_plan_id !== (int) $plan->id) {
+            throw new RuntimeException('Only the currently active plan can be extended.');
+        }
+
+        $payload = [
+            'mode' => 'payment',
+            'success_url' => $successUrl.'?session_id={CHECKOUT_SESSION_ID}',
+            'cancel_url' => $cancelUrl,
+            'client_reference_id' => (string) $company->id,
+            'line_items[0][quantity]' => 1,
+            'line_items[0][price_data][currency]' => strtolower($plan->currency),
+            'line_items[0][price_data][unit_amount]' => (int) round(((float) $plan->price) * 100),
+            'line_items[0][price_data][product_data][name]' => $plan->name.' extension',
+            'line_items[0][price_data][product_data][description]' => 'Prepaid extension for '.$plan->durationLabel(),
+            'metadata[company_id]' => (string) $company->id,
+            'metadata[plan_id]' => (string) $plan->id,
+            'metadata[purchase_type]' => 'extension',
+            'metadata[existing_subscription_id]' => (string) $subscription->id,
+        ];
+
+        if ($subscription->stripe_customer_id) {
+            $payload['customer'] = $subscription->stripe_customer_id;
+        } else {
+            $payload['customer_email'] = $company->email ?: $company->owners()->value('email');
+        }
+
+        return $this->request('POST', '/v1/checkout/sessions', $payload);
     }
 
     public function setAutoRenew(CompanySubscription $subscription, bool $enabled): void
