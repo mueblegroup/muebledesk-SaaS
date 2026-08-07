@@ -89,10 +89,10 @@ class ClientPortalBillingController extends Controller
 
                 if (($session['metadata']['purchase_type'] ?? null) === 'extension') {
                     if (($session['payment_status'] ?? null) === 'paid') {
-                        $this->applyExtension($company, $session);
+                        $this->applyExtension($company, $session, $stripe);
 
                         return redirect()->route('client-portal.billing.index', $company)
-                            ->with('success', 'Payment received. Your current plan has been extended.');
+                            ->with('success', 'Payment received. Your current plan and next renewal date have been extended.');
                     }
 
                     return redirect()->route('client-portal.billing.index', $company)
@@ -174,7 +174,7 @@ class ClientPortalBillingController extends Controller
         }
     }
 
-    private function applyExtension(Company $company, array $session): void
+    private function applyExtension(Company $company, array $session, StripePlatformBillingService $stripe): void
     {
         $subscription = $company->subscription()->with('plan')->first();
         $plan = PlatformSubscriptionPlan::find((int) ($session['metadata']['plan_id'] ?? 0));
@@ -191,23 +191,34 @@ class ClientPortalBillingController extends Controller
         $base = $subscription->expires_at && $subscription->expires_at->isFuture()
             ? $subscription->expires_at->copy()
             : now();
-
         $newExpiry = $plan->calculateExpiry($base);
+
+        if ($subscription->auto_renew && $subscription->stripe_subscription_id && $newExpiry) {
+            try {
+                $stripe->postponeRenewalTo($subscription, $newExpiry);
+            } catch (Throwable $exception) {
+                report($exception);
+                try {
+                    $stripe->setAutoRenew($subscription, false);
+                } catch (Throwable $fallbackException) {
+                    report($fallbackException);
+                }
+                $subscription->auto_renew = false;
+            }
+        }
 
         $subscription->update([
             'status' => 'active',
             'is_enabled' => true,
             'expires_at' => $newExpiry,
             'stripe_checkout_session_id' => $sessionId ?: $subscription->stripe_checkout_session_id,
+            'auto_renew' => (bool) $subscription->auto_renew,
             'renewal_failure_count' => 0,
             'last_renewal_error' => null,
         ]);
 
         SubscriptionPayment::updateOrCreate(
-            [
-                'provider' => 'stripe',
-                'provider_invoice_id' => $sessionId,
-            ],
+            ['provider' => 'stripe', 'provider_invoice_id' => $sessionId],
             [
                 'company_id' => $company->id,
                 'company_subscription_id' => $subscription->id,
