@@ -69,7 +69,7 @@ class CompanyOnboardingController extends Controller
             return $company;
         });
 
-        return redirect()->route('client-portal.dashboard')
-            ->with('success', "{$company->name} is ready. Open its workspace to start invoicing.");
+        return redirect()->route('client-portal.billing.index', $company)
+            ->with('success', "{$company->name} is ready. Choose a plan to activate your workspace.");
     }
 }
