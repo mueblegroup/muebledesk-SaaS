@@ -37,8 +37,26 @@ class SubscriptionRoleLimitObserver
         }
 
         $company = Company::with('subscription.plan')->find($user->current_company_id);
-        $subscription = $company?->subscription;
+        if (! $company) {
+            return;
+        }
+
+        $subscription = $company->subscription;
+
+        // A company's first owner must be allowed to become its administrator
+        // before checkout. Company onboarding attaches the owner membership first,
+        // then sets current_company_id / role. All non-owner users still require an
+        // active subscription, and normal plan limits apply once subscribed.
+        $isOwner = $user->exists && $user->companies()
+            ->whereKey($company->getKey())
+            ->wherePivot('role', 'owner')
+            ->exists();
+
         if (! $subscription?->isActive()) {
+            if ($isOwner) {
+                return;
+            }
+
             throw ValidationException::withMessages(['subscription' => 'An active company subscription is required.']);
         }
 
