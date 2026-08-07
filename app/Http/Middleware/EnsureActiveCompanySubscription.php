@@ -11,6 +11,25 @@ class EnsureActiveCompanySubscription
 {
     public function handle(Request $request, Closure $next): Response
     {
+        // The central client portal must always remain reachable so a new user
+        // can create a company, choose a plan, pay, and manage billing.
+        $host = strtolower($request->getHost());
+        $centralDomain = strtolower((string) config('saas.central_domain'));
+
+        if ($host === $centralDomain) {
+            return $next($request);
+        }
+
+        // These routes are deliberately accessible before a subscription exists.
+        if ($request->routeIs(
+            'client-portal.*',
+            'companies.create',
+            'companies.store',
+            'companies.switch'
+        )) {
+            return $next($request);
+        }
+
         /** @var Company|null $company */
         $company = $request->attributes->get('currentCompany');
 
