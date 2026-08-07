@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Company;
 use App\Models\CompanySubscription;
 use App\Models\PlatformSubscriptionPlan;
+use App\Models\SubscriptionPayment;
 use App\Services\StripePlatformBillingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,9 +41,28 @@ class ClientPortalBillingController extends Controller
     {
         $this->authorizeCompany($request, $company, ownerOnly: true);
         abort_unless($plan->is_active, 404);
-        $autoRenew = $request->boolean('auto_renew', $plan->auto_renew_default);
+
+        $company->load('subscription.plan');
+        $subscription = $company->subscription;
 
         try {
+            if ($subscription?->isActive()) {
+                if ((int) $subscription->platform_subscription_plan_id !== (int) $plan->id) {
+                    return back()->with('error', 'You already have an active plan. Plan switching must be handled separately to avoid duplicate subscriptions or charges.');
+                }
+
+                $session = $stripe->createExtensionCheckoutSession(
+                    $company,
+                    $subscription,
+                    $plan,
+                    route('client-portal.billing.success', $company),
+                    route('client-portal.billing.index', $company)
+                );
+
+                return redirect()->away($session['url']);
+            }
+
+            $autoRenew = $request->boolean('auto_renew', $plan->auto_renew_default);
             $session = $stripe->createCheckoutSession(
                 $company,
                 $plan,
@@ -66,6 +86,19 @@ class ClientPortalBillingController extends Controller
         if ($sessionId !== '') {
             try {
                 $session = $stripe->retrieveCheckoutSession($sessionId);
+
+                if (($session['metadata']['purchase_type'] ?? null) === 'extension') {
+                    if (($session['payment_status'] ?? null) === 'paid') {
+                        $this->applyExtension($company, $session);
+
+                        return redirect()->route('client-portal.billing.index', $company)
+                            ->with('success', 'Payment received. Your current plan has been extended.');
+                    }
+
+                    return redirect()->route('client-portal.billing.index', $company)
+                        ->with('warning', 'Your extension payment is still being processed by Stripe.');
+                }
+
                 $subscriptionPayload = $session['subscription'] ?? null;
                 $subscriptionId = is_array($subscriptionPayload)
                     ? (string) ($subscriptionPayload['id'] ?? '')
@@ -141,15 +174,75 @@ class ClientPortalBillingController extends Controller
         }
     }
 
+    private function applyExtension(Company $company, array $session): void
+    {
+        $subscription = $company->subscription()->with('plan')->first();
+        $plan = PlatformSubscriptionPlan::find((int) ($session['metadata']['plan_id'] ?? 0));
+        $sessionId = (string) ($session['id'] ?? '');
+
+        if (! $subscription || ! $plan || ! $subscription->isActive() || (int) $subscription->platform_subscription_plan_id !== (int) $plan->id) {
+            return;
+        }
+
+        if ($sessionId !== '' && $subscription->stripe_checkout_session_id === $sessionId) {
+            return;
+        }
+
+        $base = $subscription->expires_at && $subscription->expires_at->isFuture()
+            ? $subscription->expires_at->copy()
+            : now();
+
+        $newExpiry = $plan->calculateExpiry($base);
+
+        $subscription->update([
+            'status' => 'active',
+            'is_enabled' => true,
+            'expires_at' => $newExpiry,
+            'stripe_checkout_session_id' => $sessionId ?: $subscription->stripe_checkout_session_id,
+            'renewal_failure_count' => 0,
+            'last_renewal_error' => null,
+        ]);
+
+        SubscriptionPayment::updateOrCreate(
+            [
+                'provider' => 'stripe',
+                'provider_invoice_id' => $sessionId,
+            ],
+            [
+                'company_id' => $company->id,
+                'company_subscription_id' => $subscription->id,
+                'platform_subscription_plan_id' => $plan->id,
+                'provider_payment_id' => $session['payment_intent'] ?? null,
+                'provider_customer_id' => $session['customer'] ?? $subscription->stripe_customer_id,
+                'status' => 'paid',
+                'amount' => ((int) ($session['amount_total'] ?? 0)) / 100,
+                'currency' => strtoupper($session['currency'] ?? $plan->currency),
+                'description' => $plan->name.' extension',
+                'paid_at' => now(),
+                'failed_at' => null,
+                'failure_message' => null,
+                'metadata' => [
+                    'checkout_session_id' => $sessionId,
+                    'purchase_type' => 'extension',
+                    'extended_from' => $base->toIso8601String(),
+                    'extended_until' => $newExpiry?->toIso8601String(),
+                ],
+            ]
+        );
+    }
+
     private function syncFromStripe(CompanySubscription $record, array $subscription): void
     {
         $status = (string) ($subscription['status'] ?? $record->status);
         $start = isset($subscription['current_period_start'])
             ? now()->setTimestamp($subscription['current_period_start'])
             : $record->starts_at;
-        $end = isset($subscription['current_period_end'])
+        $remoteEnd = isset($subscription['current_period_end'])
             ? now()->setTimestamp($subscription['current_period_end'])
-            : $record->expires_at;
+            : null;
+        $end = $record->expires_at && $remoteEnd && $record->expires_at->greaterThan($remoteEnd)
+            ? $record->expires_at
+            : ($remoteEnd ?? $record->expires_at);
 
         $record->update([
             'status' => $status,
@@ -158,7 +251,7 @@ class ClientPortalBillingController extends Controller
             'starts_at' => $start,
             'expires_at' => $end,
             'current_period_starts_at' => $start,
-            'current_period_ends_at' => $end,
+            'current_period_ends_at' => $remoteEnd ?? $record->current_period_ends_at,
             'auto_renew' => ! (bool) ($subscription['cancel_at_period_end'] ?? false),
             'is_enabled' => ! in_array($status, ['canceled', 'unpaid', 'incomplete_expired'], true),
             'cancel_at' => isset($subscription['cancel_at']) ? now()->setTimestamp($subscription['cancel_at']) : null,
