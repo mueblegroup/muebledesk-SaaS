@@ -21,6 +21,9 @@
 <body class="font-sans antialiased soft-gradient">
     @php
         $user = Auth::user();
+        $currentCompany = $user?->currentCompany;
+        $workspaceName = $currentCompany?->name ?: config('app.name', 'Mueble Desk');
+        $workspaceInitial = strtoupper(substr($workspaceName, 0, 1));
         $roleLabel = $user?->role?->value ? ucfirst($user->role->value) : 'User';
         $canManageCompany = $user?->isAdmin() || $user?->isEmployee();
         $navGroups = [
@@ -61,9 +64,9 @@
         <aside class="fixed inset-y-0 left-0 z-50 w-80 max-w-[86vw] -translate-x-full border-r border-white/70 bg-white/90 p-4 shadow-2xl shadow-slate-950/10 backdrop-blur-xl transition duration-300 dark:border-slate-800 dark:bg-slate-950/90 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 lg:shadow-none" :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
             <div class="flex h-full flex-col">
                 <div class="mb-4 flex items-center justify-between rounded-3xl border border-slate-200 bg-white p-4 text-slate-950 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-white">
-                    <a href="{{ route('dashboard') }}" class="flex items-center gap-3">
-                        <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-xl font-black text-white shadow-lg shadow-indigo-500/20">M</span>
-                        <span><span class="block text-sm font-extrabold leading-tight">{{ config('app.name', 'Mueble Desk') }}</span><span class="block text-xs text-slate-500 dark:text-slate-400">Modern workspace</span></span>
+                    <a href="{{ route('dashboard') }}" class="flex min-w-0 items-center gap-3">
+                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-xl font-black text-white shadow-lg shadow-indigo-500/20">{{ $workspaceInitial }}</span>
+                        <span class="min-w-0"><span class="block truncate text-sm font-extrabold leading-tight">{{ $workspaceName }}</span><span class="block text-xs text-slate-500 dark:text-slate-400">Company workspace</span></span>
                     </a>
                     <button type="button" class="rounded-2xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 lg:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" @click="sidebarOpen = false" aria-label="Close navigation">✕</button>
                 </div>
