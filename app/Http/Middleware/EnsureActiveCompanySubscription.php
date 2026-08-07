@@ -11,16 +11,29 @@ class EnsureActiveCompanySubscription
 {
     public function handle(Request $request, Closure $next): Response
     {
-        // The central client portal must always remain reachable so a new user
-        // can create a company, choose a plan, pay, and manage billing.
-        $host = strtolower($request->getHost());
-        $centralDomain = strtolower((string) config('saas.central_domain'));
-
-        if ($host === $centralDomain) {
+        // Company onboarding and billing must always remain reachable before a
+        // subscription exists. Use URL paths as the primary guard because this
+        // middleware runs globally and must not depend on route-name resolution
+        // or central-domain configuration being correct.
+        if ($request->is(
+            'client-portal',
+            'client-portal/*',
+            'companies/create',
+            'companies',
+            'companies/*/switch'
+        )) {
             return $next($request);
         }
 
-        // These routes are deliberately accessible before a subscription exists.
+        // The configured central domain is also always subscription-free.
+        $host = strtolower($request->getHost());
+        $centralDomain = strtolower((string) config('saas.central_domain'));
+
+        if ($centralDomain !== '' && $host === $centralDomain) {
+            return $next($request);
+        }
+
+        // Keep the named-route checks as a secondary safeguard.
         if ($request->routeIs(
             'client-portal.*',
             'companies.create',
@@ -33,6 +46,8 @@ class EnsureActiveCompanySubscription
         /** @var Company|null $company */
         $company = $request->attributes->get('currentCompany');
 
+        // Subscription enforcement is only meaningful inside a resolved
+        // company workspace. Guests, central requests and superadmins pass.
         if (! $company || ! $request->user() || $request->user()->isSuperAdmin()) {
             return $next($request);
         }
