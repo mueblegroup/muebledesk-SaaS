@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Company;
 use App\Models\CompanySubscription;
 use App\Models\PlatformSubscriptionPlan;
+use DateTimeInterface;
 use GuzzleHttp\Client;
 use Illuminate\Support\Arr;
 use RuntimeException;
@@ -97,6 +98,19 @@ class StripePlatformBillingService
         }
 
         return $this->request('POST', '/v1/checkout/sessions', $payload);
+    }
+
+    public function postponeRenewalTo(CompanySubscription $subscription, DateTimeInterface $renewAt): array
+    {
+        if (! $subscription->stripe_subscription_id) {
+            throw new RuntimeException('This subscription does not have a Stripe subscription ID.');
+        }
+
+        return $this->request('POST', '/v1/subscriptions/'.$subscription->stripe_subscription_id, [
+            'trial_end' => $renewAt->getTimestamp(),
+            'proration_behavior' => 'none',
+            'cancel_at_period_end' => 'false',
+        ]);
     }
 
     public function setAutoRenew(CompanySubscription $subscription, bool $enabled): void
