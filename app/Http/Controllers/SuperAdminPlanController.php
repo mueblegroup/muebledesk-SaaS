@@ -18,6 +18,7 @@ class SuperAdminPlanController extends Controller
                 ->orderBy('sort_order')
                 ->orderBy('price')
                 ->get(),
+            'featureOptions' => PlatformSubscriptionPlan::FEATURE_OPTIONS,
         ]);
     }
 
@@ -60,27 +61,34 @@ class SuperAdminPlanController extends Controller
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['required', 'string', 'size:3'],
             'duration_value' => ['required', 'integer', 'min:1', 'max:3650'],
-            'duration_unit' => ['required', Rule::in(['day', 'month', 'year'])],
+            'duration_unit' => ['required', Rule::in(['days', 'months', 'years'])],
             'admin_limit' => ['nullable', 'integer', 'min:0'],
             'employee_limit' => ['nullable', 'integer', 'min:0'],
             'client_limit' => ['nullable', 'integer', 'min:0'],
+            'feature_keys' => ['nullable', 'array'],
+            'feature_keys.*' => ['string', Rule::in(array_keys(PlatformSubscriptionPlan::FEATURE_OPTIONS))],
             'features_text' => ['nullable', 'string'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'auto_renew_default' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $validated['currency'] = strtoupper($validated['currency']);
-        $validated['features'] = collect(preg_split('/\r\n|\r|\n/', $validated['features_text'] ?? ''))
+        $displayFeatures = collect(preg_split('/\r\n|\r|\n/', $validated['features_text'] ?? ''))
             ->map(fn (string $feature) => trim($feature))
             ->filter()
+            ->reject(fn (string $feature) => array_key_exists($feature, PlatformSubscriptionPlan::FEATURE_OPTIONS));
+
+        $validated['currency'] = strtoupper($validated['currency']);
+        $validated['features'] = collect($validated['feature_keys'] ?? [])
+            ->merge($displayFeatures)
+            ->unique()
             ->values()
             ->all();
         $validated['auto_renew_default'] = $request->boolean('auto_renew_default');
         $validated['is_active'] = $request->boolean('is_active');
         $validated['sort_order'] = $validated['sort_order'] ?? 0;
 
-        unset($validated['features_text']);
+        unset($validated['feature_keys'], $validated['features_text']);
 
         return $validated;
     }
