@@ -152,6 +152,7 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
     Route::resource('payments', PaymentController::class)->only(['index', 'show', 'edit', 'update', 'destroy']);
 
     Route::get('/expenses/export', [ExpenseController::class, 'export'])->name('expenses.export');
+    Route::get('/expenses/profit-loss/export', [ExpenseController::class, 'profitLossExport'])->name('expenses.profit_loss.export');
     Route::get('/expenses/profit-loss', [ExpenseController::class, 'profitLoss'])->name('expenses.profit_loss');
     Route::resource('expenses', ExpenseController::class);
 
