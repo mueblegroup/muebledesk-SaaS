@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\ApiKeyController;
+use App\Http\Controllers\Admin\MyInvoisSettingController;
 use App\Http\Controllers\Admin\SettingController as AdminSettingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\ClientPortalBillingController;
@@ -99,7 +100,7 @@ Route::middleware(['auth', '2fa'])->group(function () {
 
     Route::get('/payments/{payment}/receipt', [PaymentController::class, 'downloadReceipt'])->name('payments.receipt');
     Route::post('/myinvois/taxpayers/search', [MyInvoisTaxpayerController::class, 'search'])
-        ->middleware('throttle:10,1')
+        ->middleware(['plan.feature:einvoice', 'throttle:10,1'])
         ->name('myinvois.taxpayers.search');
 });
 
@@ -112,6 +113,9 @@ Route::middleware(['auth', '2fa', 'role:admin'])->group(function () {
 
     Route::get('/admin/settings', [AdminSettingController::class, 'index'])->name('admin.setting.index');
     Route::put('/admin/settings', [AdminSettingController::class, 'update'])->name('admin.setting.update');
+    Route::get('/admin/einvoice-settings', [MyInvoisSettingController::class, 'index'])->middleware('plan.feature:einvoice')->name('admin.einvoice-settings.index');
+    Route::put('/admin/einvoice-settings', [MyInvoisSettingController::class, 'update'])->middleware('plan.feature:einvoice')->name('admin.einvoice-settings.update');
+    Route::post('/admin/einvoice-settings/test', [MyInvoisSettingController::class, 'testConnection'])->middleware(['plan.feature:einvoice', 'throttle:5,1'])->name('admin.einvoice-settings.test');
     Route::get('/admin/activity-logs', [ActivityLogController::class, 'index'])->name('admin.activity-logs.index');
     Route::get('/admin/api-keys', [ApiKeyController::class, 'index'])->name('admin.api-keys.index');
     Route::post('/admin/api-keys', [ApiKeyController::class, 'store'])->name('admin.api-keys.store');
@@ -140,11 +144,11 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
     Route::get('/invoices/{invoice}/download', [InvoiceController::class, 'downloadPdf'])->name('invoices.download');
     Route::resource('invoices.payments', PaymentController::class)->only(['create', 'store']);
 
-    Route::redirect('/einvoices', '/invoices')->name('einvoices.index');
-    Route::get('/invoices/{invoice}/einvoice', [EInvoiceController::class, 'preview'])->name('einvoices.preview');
-    Route::post('/invoices/{invoice}/einvoice/submit', [EInvoiceController::class, 'submit'])->middleware('throttle:5,1')->name('einvoices.submit');
-    Route::post('/invoices/{invoice}/einvoice/refresh', [EInvoiceController::class, 'refresh'])->middleware('throttle:30,1')->name('einvoices.refresh');
-    Route::put('/invoices/{invoice}/einvoice/cancel', [EInvoiceController::class, 'cancel'])->middleware('throttle:3,1')->name('einvoices.cancel');
+    Route::redirect('/einvoices', '/invoices')->middleware('plan.feature:einvoice')->name('einvoices.index');
+    Route::get('/invoices/{invoice}/einvoice', [EInvoiceController::class, 'preview'])->middleware('plan.feature:einvoice')->name('einvoices.preview');
+    Route::post('/invoices/{invoice}/einvoice/submit', [EInvoiceController::class, 'submit'])->middleware(['plan.feature:einvoice', 'throttle:5,1'])->name('einvoices.submit');
+    Route::post('/invoices/{invoice}/einvoice/refresh', [EInvoiceController::class, 'refresh'])->middleware(['plan.feature:einvoice', 'throttle:30,1'])->name('einvoices.refresh');
+    Route::put('/invoices/{invoice}/einvoice/cancel', [EInvoiceController::class, 'cancel'])->middleware(['plan.feature:einvoice', 'throttle:3,1'])->name('einvoices.cancel');
 
     Route::get('/payments/export', [PaymentController::class, 'export'])->name('payments.export');
     Route::get('/payments/create', [PaymentController::class, 'manualCreate'])->name('payments.create');
@@ -166,15 +170,15 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
 
 Route::middleware(['auth', '2fa', 'role:customer'])->group(function () {
     Route::redirect('/customer/dashboard', '/dashboard')->name('customer.dashboard');
-    Route::get('/my-einvoice-profile', [CustomerEInvoiceProfileController::class, 'edit'])->name('customer.einvoice-profile.edit');
-    Route::put('/my-einvoice-profile', [CustomerEInvoiceProfileController::class, 'update'])->name('customer.einvoice-profile.update');
+    Route::get('/my-einvoice-profile', [CustomerEInvoiceProfileController::class, 'edit'])->middleware('plan.feature:einvoice')->name('customer.einvoice-profile.edit');
+    Route::put('/my-einvoice-profile', [CustomerEInvoiceProfileController::class, 'update'])->middleware('plan.feature:einvoice')->name('customer.einvoice-profile.update');
     Route::get('/my-invoices/export', [InvoiceController::class, 'customerExport'])->name('invoices.customer_export');
     Route::get('/my-invoices', [InvoiceController::class, 'customerIndex'])->name('invoices.customer_index');
     Route::get('/my-invoices/{invoice}', [InvoiceController::class, 'customerShow'])->name('invoices.customer_show');
     Route::get('/my-invoices/{invoice}/download', [InvoiceController::class, 'customerDownloadPdf'])->name('invoices.customer_download');
-    Route::get('/my-invoices/{invoice}/einvoice', [EInvoiceController::class, 'preview'])->name('customer.einvoices.preview');
-    Route::post('/my-invoices/{invoice}/einvoice/submit', [EInvoiceController::class, 'submit'])->middleware('throttle:3,1')->name('customer.einvoices.submit');
-    Route::post('/my-invoices/{invoice}/einvoice/refresh', [EInvoiceController::class, 'refresh'])->middleware('throttle:20,1')->name('customer.einvoices.refresh');
+    Route::get('/my-invoices/{invoice}/einvoice', [EInvoiceController::class, 'preview'])->middleware('plan.feature:einvoice')->name('customer.einvoices.preview');
+    Route::post('/my-invoices/{invoice}/einvoice/submit', [EInvoiceController::class, 'submit'])->middleware(['plan.feature:einvoice', 'throttle:3,1'])->name('customer.einvoices.submit');
+    Route::post('/my-invoices/{invoice}/einvoice/refresh', [EInvoiceController::class, 'refresh'])->middleware(['plan.feature:einvoice', 'throttle:20,1'])->name('customer.einvoices.refresh');
 });
 
 require __DIR__.'/auth.php';
