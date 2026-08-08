@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Enums\UserRoleEnum;
 use App\Models\Company;
+use App\Models\Setting;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -37,6 +38,11 @@ class ResolveCompanyTenant
         app()->instance(Company::class, $company);
         app()->instance('currentCompany', $company);
         $request->attributes->set('currentCompany', $company);
+
+        config([
+            'myinvois.enabled' => filter_var(Setting::get('myinvois_enabled', '0'), FILTER_VALIDATE_BOOL),
+            'myinvois.environment' => (string) Setting::get('myinvois_environment', 'sandbox'),
+        ]);
 
         if ($request->user()) {
             $membership = $request->user()
