@@ -11,6 +11,17 @@ class PlatformSubscriptionPlan extends Model
 {
     use HasFactory;
 
+    public const FEATURE_OPTIONS = [
+        'einvoice' => 'MyInvois e-Invoice',
+        'expenses' => 'Expenses',
+        'profit_loss' => 'Profit & Loss Reports',
+        'api_access' => 'API Access',
+        'recurring_invoices' => 'Recurring Invoices',
+        'custom_payment_gateway' => 'Custom Payment Gateways',
+        'multiple_employees' => 'Multiple Employees',
+        'customer_portal' => 'Customer Portal',
+    ];
+
     protected $fillable = [
         'name', 'slug', 'description', 'price', 'currency',
         'duration_value', 'duration_unit', 'admin_limit', 'employee_limit',
@@ -54,9 +65,23 @@ class PlatformSubscriptionPlan extends Model
         };
     }
 
+    public function hasFeature(string $feature): bool
+    {
+        $features = collect($this->features ?? [])->map(fn ($value) => (string) $value);
+        $known = $features->intersect(array_keys(self::FEATURE_OPTIONS));
+
+        // Preserve existing subscriptions created before structured feature keys existed.
+        if ($known->isEmpty()) {
+            return true;
+        }
+
+        return $features->contains($feature);
+    }
+
     public function durationLabel(): string
     {
         $unit = $this->duration_value === 1 ? str($this->duration_unit)->singular() : $this->duration_unit;
+
         return $this->duration_value.' '.$unit;
     }
 
