@@ -12,7 +12,11 @@
                     · {{ $rangeStart->format('Y-m-d') }} to {{ $rangeEnd->format('Y-m-d') }}
                 </p>
             </div>
-            <a href="{{ route('expenses.index') }}" class="btn-secondary">Back to Expenses</a>
+            <div class="flex flex-wrap gap-2">
+                <a href="{{ route('expenses.profit_loss.export', array_merge(request()->query(), ['format' => 'csv'])) }}" class="btn-secondary">Export CSV</a>
+                <a href="{{ route('expenses.profit_loss.export', array_merge(request()->query(), ['format' => 'pdf'])) }}" class="btn-secondary">Export PDF</a>
+                <a href="{{ route('expenses.index') }}" class="btn-secondary">Back to Expenses</a>
+            </div>
         </div>
 
         <form method="GET" class="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900" x-data="{ period: @js($period) }">
