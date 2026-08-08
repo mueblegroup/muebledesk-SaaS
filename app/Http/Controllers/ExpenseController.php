@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Expense;
 use App\Models\Payment;
+use App\Models\Setting;
 use App\Services\ActivityLogger;
 use App\Services\ExpenseNumberGenerator;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -84,7 +86,17 @@ class ExpenseController extends Controller
 
     public function export(Request $request)
     {
+        $format = strtolower((string) $request->input('format', 'csv'));
         $expenses = $this->filteredExpenses($request)->get();
+
+        if ($format === 'pdf') {
+            return Pdf::loadView('pdfs.expenses-report', [
+                'expenses' => $expenses,
+                'summary' => $this->expenseSummary($request),
+                'filters' => $request->only(['q', 'category', 'from', 'to']),
+                'settings' => Setting::allKeyed(),
+            ])->setPaper('a4', 'landscape')->download('expenses_'.now()->format('Ymd_His').'.pdf');
+        }
 
         return response()->streamDownload(function () use ($expenses) {
             $handle = fopen('php://output', 'w');
@@ -108,10 +120,58 @@ class ExpenseController extends Controller
             }
 
             fclose($handle);
-        }, 'expenses.csv', ['Content-Type' => 'text/csv']);
+        }, 'expenses_'.now()->format('Ymd_His').'.csv', ['Content-Type' => 'text/csv']);
     }
 
     public function profitLoss(Request $request)
+    {
+        return view('expenses.profit-loss', $this->profitLossData($request));
+    }
+
+    public function profitLossExport(Request $request)
+    {
+        $format = strtolower((string) $request->input('format', 'csv'));
+        $report = $this->profitLossData($request);
+        $filename = 'profit-loss_'.($report['period'] === 'all_time' ? 'all-time' : $report['rangeStart']->format('Y-m')).'_'.now()->format('Ymd_His');
+
+        if ($format === 'pdf') {
+            return Pdf::loadView('pdfs.profit-loss-report', array_merge($report, [
+                'settings' => Setting::allKeyed(),
+            ]))->setPaper('a4', 'landscape')->download($filename.'.pdf');
+        }
+
+        return response()->streamDownload(function () use ($report) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['Profit & Loss Report']);
+            fputcsv($handle, ['Period', $report['period'] === 'all_time' ? 'All Time' : ($report['month'] ? $report['rangeStart']->format('F Y') : (string) $report['year'])]);
+            fputcsv($handle, ['Date Range', $report['rangeStart']->format('Y-m-d').' to '.$report['rangeEnd']->format('Y-m-d')]);
+            fputcsv($handle, []);
+            fputcsv($handle, ['Summary']);
+            fputcsv($handle, ['Revenue Collected', number_format((float) $report['revenue'], 2, '.', '')]);
+            fputcsv($handle, ['Company Expenses', number_format((float) $report['expenses'], 2, '.', '')]);
+            fputcsv($handle, ['Net Profit / Loss', number_format((float) $report['netProfit'], 2, '.', '')]);
+            fputcsv($handle, []);
+            fputcsv($handle, ['Expenses by Category']);
+            fputcsv($handle, ['Category', 'Amount']);
+            foreach ($report['expensesByCategory'] as $row) {
+                fputcsv($handle, [str($row->category)->replace('_', ' ')->title(), number_format((float) $row->total, 2, '.', '')]);
+            }
+            fputcsv($handle, []);
+            fputcsv($handle, ['Monthly Breakdown']);
+            fputcsv($handle, ['Month', 'Revenue', 'Expenses', 'Net Profit / Loss']);
+            foreach ($report['monthlyProfitLoss'] as $row) {
+                fputcsv($handle, [
+                    $row['month'],
+                    number_format($row['revenue'], 2, '.', ''),
+                    number_format($row['expenses'], 2, '.', ''),
+                    number_format($row['net_profit'], 2, '.', ''),
+                ]);
+            }
+            fclose($handle);
+        }, $filename.'.csv', ['Content-Type' => 'text/csv']);
+    }
+
+    private function profitLossData(Request $request): array
     {
         $period = $request->input('period') === 'all_time' ? 'all_time' : 'year';
         $year = (int) $request->input('year', now()->year);
@@ -161,7 +221,7 @@ class ExpenseController extends Controller
             ]);
         }
 
-        return view('expenses.profit-loss', compact('period', 'year', 'month', 'rangeStart', 'rangeEnd', 'revenue', 'expenses', 'netProfit', 'expensesByCategory', 'monthlyProfitLoss'));
+        return compact('period', 'year', 'month', 'rangeStart', 'rangeEnd', 'revenue', 'expenses', 'netProfit', 'expensesByCategory', 'monthlyProfitLoss');
     }
 
     private function rules(): array
