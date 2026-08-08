@@ -40,6 +40,8 @@ class PlatformController extends Controller
     public function settings(): View
     {
         $get = fn(string $key,mixed $default=null)=>PlatformSetting::valueFor($key,$default);
+        $googleReady = filled(config('services.google.client_id')) && filled(config('services.google.client_secret')) && filled(config('services.google.redirect'));
+
         return view('superadmin.settings.index',[
             'settings'=>[
                 'platform_name'=>$get('platform.name',config('app.name')),
@@ -70,11 +72,14 @@ class PlatformController extends Controller
                 'apple_client_secret'=>filled($get('sso.apple_client_secret',config('services.apple.client_secret'))),
             ],
             'sso'=>[
+                'google_enabled'=>$get('sso.google_enabled',$googleReady?'1':'0'),
                 'google_client_id'=>$get('sso.google_client_id',config('services.google.client_id')),
                 'google_redirect'=>$get('sso.google_redirect',config('services.google.redirect')),
+                'microsoft_enabled'=>$get('sso.microsoft_enabled','0'),
                 'microsoft_client_id'=>$get('sso.microsoft_client_id',config('services.microsoft.client_id')),
                 'microsoft_tenant'=>$get('sso.microsoft_tenant',config('services.microsoft.tenant','common')),
                 'microsoft_redirect'=>$get('sso.microsoft_redirect',config('services.microsoft.redirect')),
+                'apple_enabled'=>$get('sso.apple_enabled','0'),
                 'apple_client_id'=>$get('sso.apple_client_id',config('services.apple.client_id')),
                 'apple_redirect'=>$get('sso.apple_redirect',config('services.apple.redirect')),
             ],
@@ -103,9 +108,13 @@ class PlatformController extends Controller
             'auth.allow_registration'=>$request->boolean('allow_registration')?'1':'0',
             'auth.require_2fa_superadmin'=>$request->boolean('require_2fa_superadmin')?'1':'0',
             'auth.require_2fa_company_admin'=>$request->boolean('require_2fa_company_admin')?'1':'0',
+            'sso.google_enabled'=>$request->boolean('google_enabled')?'1':'0',
             'sso.google_client_id'=>$validated['google_client_id']??null,'sso.google_redirect'=>$validated['google_redirect']??null,
+            'sso.microsoft_enabled'=>$request->boolean('microsoft_enabled')?'1':'0',
             'sso.microsoft_client_id'=>$validated['microsoft_client_id']??null,'sso.microsoft_tenant'=>$validated['microsoft_tenant']??'common',
-            'sso.microsoft_redirect'=>$validated['microsoft_redirect']??null,'sso.apple_client_id'=>$validated['apple_client_id']??null,
+            'sso.microsoft_redirect'=>$validated['microsoft_redirect']??null,
+            'sso.apple_enabled'=>$request->boolean('apple_enabled')?'1':'0',
+            'sso.apple_client_id'=>$validated['apple_client_id']??null,
             'sso.apple_redirect'=>$validated['apple_redirect']??null,
         ];
         foreach($plain as $key=>$value) PlatformSetting::put(str($key)->before('.')->toString(),$key,$value,false);
