@@ -51,6 +51,7 @@ class Kernel extends HttpKernel
         'role' => \App\Http\Middleware\RoleMiddleware::class,
         '2fa' => \App\Http\Middleware\EnsureTwoFactorIsVerified::class,
         'api.key' => \App\Http\Middleware\AuthenticateApiKey::class,
+        'plan.feature' => \App\Http\Middleware\EnsurePlanFeature::class,
     ];
 
     protected $middlewarePriority = [
