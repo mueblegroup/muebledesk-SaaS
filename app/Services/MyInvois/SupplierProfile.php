@@ -8,7 +8,7 @@ class SupplierProfile
 {
     public function get(): array
     {
-        $fallback = (array) config('myinvois.supplier', []);
+        $fallback = app()->bound('currentCompany') ? [] : (array) config('myinvois.supplier', []);
 
         $map = [
             'tin' => 'myinvois_supplier_tin',
@@ -39,5 +39,16 @@ class SupplierProfile
         $profile['country_code'] = $profile['country_code'] ?: 'MYS';
 
         return $profile;
+    }
+
+    public function missingRequiredFields(): array
+    {
+        $profile = $this->get();
+        $required = ['tin', 'registration_type', 'registration_number', 'msic_code', 'business_activity', 'name', 'phone', 'address_line_1', 'city', 'state_code', 'postcode', 'country_code'];
+
+        return collect($required)
+            ->filter(fn (string $field) => blank($profile[$field] ?? null))
+            ->values()
+            ->all();
     }
 }
