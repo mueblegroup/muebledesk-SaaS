@@ -35,6 +35,31 @@ class AppServiceProvider extends ServiceProvider
             if (filled($tenant)) config(['services.microsoft.tenant' => $tenant]);
             $platformName = PlatformSetting::valueFor('platform.name');
             if (filled($platformName)) config(['app.name' => $platformName]);
+
+            foreach (['google','microsoft','apple'] as $provider) {
+                // Existing installations did not have explicit enable switches. Keep
+                // Google available when fully configured, while Microsoft and Apple
+                // stay hidden until a superadmin intentionally enables them.
+                $defaultEnabled = $provider === 'google'
+                    && filled(config("services.{$provider}.client_id"))
+                    && filled(config("services.{$provider}.client_secret"))
+                    && filled(config("services.{$provider}.redirect"));
+
+                $enabled = PlatformSetting::valueFor(
+                    "sso.{$provider}_enabled",
+                    $defaultEnabled ? '1' : '0'
+                );
+
+                config(["services.{$provider}.enabled" => (string) $enabled === '1']);
+            }
+        } else {
+            config([
+                'services.google.enabled' => filled(config('services.google.client_id'))
+                    && filled(config('services.google.client_secret'))
+                    && filled(config('services.google.redirect')),
+                'services.microsoft.enabled' => false,
+                'services.apple.enabled' => false,
+            ]);
         }
 
         foreach ([Client::class, Invoice::class, Payment::class, Quotation::class, Setting::class] as $model) {
