@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Services\MyInvois\SupplierProfile;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -15,7 +14,7 @@ class ProductionReadinessCheck extends Command
 
     protected $description = 'Audit Mueble Desk configuration and runtime requirements before production rollout';
 
-    public function handle(SupplierProfile $supplierProfile): int
+    public function handle(): int
     {
         $passed = [];
         $warnings = [];
@@ -68,35 +67,36 @@ class ProductionReadinessCheck extends Command
         try {
             $migrationCount = DB::table('migrations')->count();
             $check($migrationCount > 0, 'Database migrations are present.', 'No migration history was found.');
-            $requiredTables = ['users', 'clients', 'invoices', 'payments', 'expenses', 'recurring_invoices', 'einvoices', 'einvoice_submissions'];
+            $requiredTables = ['companies', 'company_subscriptions', 'platform_subscription_plans', 'settings', 'users', 'clients', 'invoices', 'payments', 'expenses', 'recurring_invoices', 'einvoices', 'einvoice_submissions'];
             foreach ($requiredTables as $table) {
                 $check(Schema::hasTable($table), 'Table '.$table.' exists.', 'Required table '.$table.' is missing.');
+            }
+
+            if (Schema::hasTable('settings')) {
+                $check(Schema::hasColumn('settings', 'company_id'), 'Settings are tenant-scoped.', 'settings.company_id is missing.');
+            }
+            if (Schema::hasTable('einvoices')) {
+                $check(Schema::hasColumn('einvoices', 'company_id'), 'e-Invoices are tenant-scoped.', 'einvoices.company_id is missing.');
+            }
+            if (Schema::hasTable('einvoice_submissions')) {
+                $check(Schema::hasColumn('einvoice_submissions', 'company_id'), 'e-Invoice submissions are tenant-scoped.', 'einvoice_submissions.company_id is missing.');
             }
         } catch (Throwable $exception) {
             $failures[] = 'Could not inspect migrations or tables: '.$exception->getMessage();
         }
 
-        $myInvoisEnvironment = (string) config('myinvois.environment');
-        $myInvoisEnabled = (bool) config('myinvois.enabled');
-        $productionEnabled = (bool) config('myinvois.production_enabled');
-        $check(in_array($myInvoisEnvironment, ['sandbox', 'production'], true), 'MyInvois environment value is valid.', 'MYINVOIS_ENVIRONMENT must be sandbox or production.');
+        $check(config('myinvois.http.verify_tls') === true || config('myinvois.http.verify_tls') === 'true', 'MyInvois TLS verification is enabled.', 'MYINVOIS_VERIFY_TLS must be true.');
+        $check(filled(config('myinvois.environments.sandbox.api_url')), 'MyInvois sandbox API URL is configured.', 'MyInvois sandbox API URL is missing.');
+        $check(filled(config('myinvois.environments.production.api_url')), 'MyInvois production API URL is configured.', 'MyInvois production API URL is missing.');
 
-        if ($myInvoisEnvironment === 'production' || $productionEnabled) {
-            $check($myInvoisEnvironment === 'production', 'MyInvois uses production.', 'MYINVOIS_ENVIRONMENT must be production when live submission is enabled.');
-            $check($myInvoisEnabled, 'MyInvois master switch is enabled.', 'MYINVOIS_ENABLED must be true for production submission.');
-            $check($productionEnabled, 'MyInvois production switch is enabled.', 'MYINVOIS_PRODUCTION_ENABLED is false.', false);
-            $check(config('myinvois.http.verify_tls') === true || config('myinvois.http.verify_tls') === 'true', 'MyInvois TLS verification is enabled.', 'MYINVOIS_VERIFY_TLS must be true.');
-            $check(filled(config('myinvois.environments.production.client_id')), 'MyInvois production Client ID is present.', 'MYINVOIS_PRODUCTION_CLIENT_ID is missing.');
-            $check(filled(config('myinvois.environments.production.client_secret')), 'MyInvois production Client Secret is present.', 'MYINVOIS_PRODUCTION_CLIENT_SECRET is missing.');
+        if (config('myinvois.production_enabled')) {
+            $passed[] = 'Platform MyInvois production safety switch is enabled.';
+        } else {
+            $warnings[] = 'MYINVOIS_PRODUCTION_ENABLED is false. Keep this false until live submission is approved.';
+        }
 
-            try {
-                $supplier = $supplierProfile->get();
-                foreach (['tin', 'registration_type', 'registration_number', 'msic_code', 'business_activity', 'name', 'phone', 'address_line_1', 'city', 'state_code', 'postcode', 'country_code'] as $field) {
-                    $check(filled($supplier[$field] ?? null), 'Supplier '.$field.' is configured.', 'Supplier '.$field.' is missing from Admin Settings or .env.');
-                }
-            } catch (Throwable $exception) {
-                $failures[] = 'Could not load MyInvois supplier profile: '.$exception->getMessage();
-            }
+        if (filled(config('myinvois.environments.production.client_id')) || filled(config('myinvois.environments.production.client_secret'))) {
+            $warnings[] = 'Legacy platform MyInvois production credentials are still present in .env. Tenant subdomains do not use them; remove them after migration/testing is complete.';
         }
 
         $stripeSecret = (string) config('services.stripe.secret');
@@ -128,7 +128,7 @@ class ProductionReadinessCheck extends Command
         $this->newLine();
         $this->line('Passed: '.count($passed).' | Warnings: '.count($warnings).' | Failures: '.count($failures));
         $this->newLine();
-        $this->comment('Manual checks still required: cron runs schedule:run every minute, a queue worker is continuously supervised, backups restore successfully, web root points to /public, HTTPS redirects correctly, and production webhook URLs/secrets are registered with each payment gateway.');
+        $this->comment('Manual checks still required: test MyInvois from at least one sandbox tenant and one approved production tenant, confirm cron runs schedule:run every minute, supervise queue workers continuously, restore backups successfully, point the web root to /public, verify HTTPS/wildcard subdomains, and register production webhook URLs/secrets with each payment gateway.');
 
         if ($failures !== []) {
             return self::FAILURE;
