@@ -26,8 +26,16 @@
                 <label class="text-sm font-bold">Failed-payment grace period (days)<input type="number" min="0" max="90" name="grace_period_days" value="{{ old('grace_period_days',$settings['grace_period_days']) }}" class="mt-2 block w-full rounded-2xl border-slate-200 dark:border-slate-700 dark:bg-slate-950"></label>
             </div><div class="mt-5 rounded-2xl bg-slate-50 p-4 text-sm dark:bg-slate-950">Your own 2FA status: <strong>{{ auth()->user()->hasTwoFactorEnabled()?'Enabled':'Not enabled' }}</strong>. <a href="{{ route('profile.edit') }}" class="font-bold text-indigo-600">Open Profile & Security</a></div></section>
 
-            <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"><h2 class="text-xl font-black">Single sign-on providers</h2><p class="mt-1 text-sm text-slate-500">Secrets are encrypted. Leave a secret blank to preserve the existing value.</p>
-                @foreach(['google'=>'Google','microsoft'=>'Microsoft','apple'=>'Apple'] as $provider=>$label)<div class="mt-5 rounded-2xl border border-slate-200 p-5 dark:border-slate-700"><h3 class="font-black">{{ $label }}</h3><div class="mt-4 grid gap-4 md:grid-cols-2">
+            <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"><h2 class="text-xl font-black">Single sign-on providers</h2><p class="mt-1 text-sm text-slate-500">Only enabled providers are shown on login and registration. Secrets are encrypted. Leave a secret blank to preserve the existing value.</p>
+                @foreach(['google'=>'Google','microsoft'=>'Microsoft','apple'=>'Apple'] as $provider=>$label)<div class="mt-5 rounded-2xl border border-slate-200 p-5 dark:border-slate-700">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div><h3 class="font-black">{{ $label }}</h3><p class="mt-1 text-xs text-slate-500">Enable only when this provider is ready for customers.</p></div>
+                        <label class="inline-flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-bold dark:bg-slate-950">
+                            <input type="checkbox" name="{{ $provider }}_enabled" value="1" @checked(old($provider.'_enabled',$sso[$provider.'_enabled'])==='1') class="rounded">
+                            <span>Enabled</span>
+                        </label>
+                    </div>
+                    <div class="mt-4 grid gap-4 md:grid-cols-2">
                     <label class="text-sm font-bold">Client ID<input name="{{ $provider }}_client_id" value="{{ old($provider.'_client_id',$sso[$provider.'_client_id']) }}" class="mt-2 block w-full rounded-2xl border-slate-200 dark:border-slate-700 dark:bg-slate-950"></label>
                     <label class="text-sm font-bold">Client secret <span class="text-xs text-slate-400">({{ $secretStatus[$provider.'_client_secret']?'configured':'not configured' }})</span><input type="password" name="{{ $provider }}_client_secret" class="mt-2 block w-full rounded-2xl border-slate-200 dark:border-slate-700 dark:bg-slate-950" autocomplete="new-password"></label>
                     @if($provider==='microsoft')<label class="text-sm font-bold">Tenant<input name="microsoft_tenant" value="{{ old('microsoft_tenant',$sso['microsoft_tenant']) }}" class="mt-2 block w-full rounded-2xl border-slate-200 dark:border-slate-700 dark:bg-slate-950"></label>@endif
