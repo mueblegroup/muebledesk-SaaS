@@ -54,6 +54,11 @@
             @csrf
             @method('PUT')
 
+            {{-- Preserve legacy supplier-profile keys here; they are edited only from the dedicated e-Invoice setup page. --}}
+            @foreach (($sections['myinvois']['fields'] ?? []) as $key => $field)
+                <input type="hidden" name="{{ $key }}" value="{{ $settings[$key] ?? ($field['default'] ?? '') }}">
+            @endforeach
+
             @foreach ($sections as $sectionKey => $section)
                 @continue($sectionKey === 'myinvois')
                 <section class="space-y-5 border-t border-slate-200 pt-8 dark:border-slate-800">
