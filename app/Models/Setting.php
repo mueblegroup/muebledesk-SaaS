@@ -20,6 +20,10 @@ class Setting extends Model
         'hitpay_webhook_salt',
         'stripe_secret_key',
         'stripe_webhook_secret',
+        'myinvois_sandbox_client_id',
+        'myinvois_sandbox_client_secret',
+        'myinvois_production_client_id',
+        'myinvois_production_client_secret',
     ];
 
     protected $fillable = ['company_id', 'key', 'value'];
@@ -51,8 +55,8 @@ class Setting extends Model
                 'settings.updated',
                 'Setting updated: '.$key,
                 null,
-                ['key' => $key, 'value' => $oldValue],
-                ['key' => $key, 'value' => $newValue]
+                ['key' => $key, 'value' => static::isSensitive($key) && $oldValue !== '' ? '[redacted]' : $oldValue],
+                ['key' => $key, 'value' => static::isSensitive($key) && $newValue !== '' ? '[redacted]' : $newValue]
             );
         }
 
