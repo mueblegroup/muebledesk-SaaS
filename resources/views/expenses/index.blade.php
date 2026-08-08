@@ -41,9 +41,10 @@
                 </select>
                 <input name="from" type="date" value="{{ request('from') }}" class="block w-full">
                 <input name="to" type="date" value="{{ request('to') }}" class="block w-full">
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                     <button class="btn-secondary" type="submit">Filter</button>
-                    <a href="{{ route('expenses.export', request()->query()) }}" class="btn-secondary">Export CSV</a>
+                    <a href="{{ route('expenses.export', array_merge(request()->query(), ['format' => 'csv'])) }}" class="btn-secondary">CSV</a>
+                    <a href="{{ route('expenses.export', array_merge(request()->query(), ['format' => 'pdf'])) }}" class="btn-secondary">PDF</a>
                 </div>
             </div>
         </form>
