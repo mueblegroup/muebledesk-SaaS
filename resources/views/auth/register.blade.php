@@ -9,10 +9,18 @@
             <p class="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">Your verified personal identity is created first. Company details and subscription setup follow after email verification.</p>
         </div>
 
-        @if (class_exists(\Laravel\Socialite\Facades\Socialite::class))
-            <div class="grid gap-3 sm:grid-cols-3">
-                @foreach(['google' => 'Google', 'microsoft' => 'Microsoft', 'apple' => 'Apple'] as $provider => $label)
-                    <a href="{{ route('social.redirect', $provider) }}" class="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-extrabold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">{{ $label }}</a>
+        @php
+            $ssoProviders = collect(['google'=>'Google','microsoft'=>'Microsoft','apple'=>'Apple'])
+                ->filter(fn ($label, $provider) => config("services.{$provider}.enabled")
+                    && filled(config("services.{$provider}.client_id"))
+                    && filled(config("services.{$provider}.client_secret"))
+                    && filled(config("services.{$provider}.redirect")));
+        @endphp
+
+        @if (class_exists(\Laravel\Socialite\Facades\Socialite::class) && $ssoProviders->isNotEmpty())
+            <div class="grid gap-3 {{ $ssoProviders->count() > 1 ? 'sm:grid-cols-'.$ssoProviders->count() : '' }}">
+                @foreach($ssoProviders as $provider => $label)
+                    <a href="{{ route('social.redirect', $provider) }}" class="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-extrabold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">Continue with {{ $label }}</a>
                 @endforeach
             </div>
             <div class="flex items-center gap-3"><div class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></div><span class="text-xs font-bold uppercase tracking-[.18em] text-slate-400">or register by email</span><div class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></div></div>
