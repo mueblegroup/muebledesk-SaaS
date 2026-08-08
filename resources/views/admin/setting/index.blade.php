@@ -17,6 +17,16 @@
             </div>
         </div>
 
+        <div class="rounded-3xl border border-indigo-200 bg-indigo-50 p-5 dark:border-indigo-900 dark:bg-indigo-950">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h4 class="font-extrabold text-indigo-950 dark:text-indigo-100">MyInvois e-Invoice</h4>
+                    <p class="mt-1 text-sm text-indigo-700 dark:text-indigo-300">Configure this company’s encrypted ERP credentials, supplier taxpayer profile, environment, and connection test in the dedicated setup screen.</p>
+                </div>
+                <a href="{{ route('admin.einvoice-settings.index') }}" class="btn-secondary whitespace-nowrap">Open e-Invoice Setup</a>
+            </div>
+        </div>
+
         @if (session('success'))
             <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
                 {{ session('success') }}
@@ -45,6 +55,7 @@
             @method('PUT')
 
             @foreach ($sections as $sectionKey => $section)
+                @continue($sectionKey === 'myinvois')
                 <section class="space-y-5 border-t border-slate-200 pt-8 dark:border-slate-800">
                     <div>
                         <h4 class="text-lg font-extrabold text-slate-950 dark:text-white">{{ $section['title'] }}</h4>
@@ -113,7 +124,7 @@
 
             <div class="sticky bottom-0 -mx-4 border-t border-slate-200 bg-white/90 px-4 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p class="text-sm text-slate-500 dark:text-slate-400">Changes are saved into the settings table and used by payment/webhook logic.</p>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Changes are saved into the company-scoped settings table.</p>
                     <button type="submit" class="btn-primary">
                         {{ __('Save Settings') }}
                     </button>
