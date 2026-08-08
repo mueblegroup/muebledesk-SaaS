@@ -19,7 +19,7 @@ class SocialAuthenticationController extends Controller
 
     public function redirect(string $provider): RedirectResponse
     {
-        abort_unless(in_array($provider, self::PROVIDERS, true), 404);
+        $this->ensureProviderIsAvailable($provider);
 
         $driver = Socialite::driver($provider);
         if ($provider === 'google') {
@@ -31,7 +31,7 @@ class SocialAuthenticationController extends Controller
 
     public function callback(string $provider): RedirectResponse
     {
-        abort_unless(in_array($provider, self::PROVIDERS, true), 404);
+        $this->ensureProviderIsAvailable($provider);
 
         try {
             $socialUser = Socialite::driver($provider)->user();
@@ -83,5 +83,17 @@ class SocialAuthenticationController extends Controller
 
         return redirect()->intended(route('client-portal.dashboard'))
             ->with('success', 'Signed in with '.ucfirst($provider).'.');
+    }
+
+    private function ensureProviderIsAvailable(string $provider): void
+    {
+        abort_unless(in_array($provider, self::PROVIDERS, true), 404);
+
+        $enabled = (bool) config("services.{$provider}.enabled");
+        $configured = filled(config("services.{$provider}.client_id"))
+            && filled(config("services.{$provider}.client_secret"))
+            && filled(config("services.{$provider}.redirect"));
+
+        abort_unless($enabled && $configured, 404);
     }
 }
