@@ -2,7 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Models\Company;
 use App\Models\EInvoice;
+use App\Models\Setting;
 use App\Notifications\EInvoiceStatusNotification;
 use App\Services\MyInvois\MyInvoisClient;
 use Illuminate\Bus\Queueable;
@@ -25,8 +27,21 @@ class PollEInvoiceStatus implements ShouldQueue
 
     public function handle(MyInvoisClient $client): void
     {
-        $eInvoice = EInvoice::with(['invoice.client.user', 'submission'])->find($this->eInvoiceId);
+        $eInvoice = EInvoice::withoutGlobalScopes()->with(['invoice.client.user', 'submission'])->find($this->eInvoiceId);
         if (! $eInvoice || in_array($eInvoice->status, ['valid', 'invalid', 'cancelled'], true)) return;
+
+        $company = Company::query()->find($eInvoice->company_id);
+        if (! $company) {
+            Log::error('Automated MyInvois polling could not resolve tenant company.', ['einvoice_id' => $this->eInvoiceId, 'company_id' => $eInvoice->company_id]);
+            return;
+        }
+
+        app()->instance(Company::class, $company);
+        app()->instance('currentCompany', $company);
+        config([
+            'myinvois.enabled' => filter_var(Setting::get('myinvois_enabled', '0'), FILTER_VALIDATE_BOOL),
+            'myinvois.environment' => (string) Setting::get('myinvois_environment', $eInvoice->environment ?: 'sandbox'),
+        ]);
 
         $uid = $eInvoice->submission?->submission_uid;
         if (! $uid) return;
