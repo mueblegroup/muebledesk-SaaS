@@ -23,12 +23,25 @@ html.dark {
     border-color: rgba(148, 163, 184, .18);
 }
 
+.dark .landing-page .landing-header {
+    border-color: rgba(148, 163, 184, .16);
+}
+
+.dark .landing-page h1,
+.dark .landing-page h2,
+.dark .landing-page h3,
+.dark .landing-page h4,
+.dark .landing-page .landing-header .font-black,
+.dark .landing-page .landing-header .font-extrabold {
+    color: #f8fafc;
+}
+
 .landing-page .landing-muted {
     color: #475569;
 }
 
 .dark .landing-page .landing-muted {
-    color: #94a3b8;
+    color: #cbd5e1;
 }
 
 .landing-page .landing-subtle {
@@ -36,7 +49,21 @@ html.dark {
 }
 
 .dark .landing-page .landing-subtle {
-    color: #64748b;
+    color: #aebbd0;
+}
+
+.dark .landing-page .landing-header .landing-subtle {
+    color: #cbd5e1;
+}
+
+.dark .landing-page .landing-header nav a:not([class*="bg-white"]),
+.dark .landing-page .landing-header nav button {
+    color: #e2e8f0;
+}
+
+.dark .landing-page .landing-header nav a:not([class*="bg-white"]):hover,
+.dark .landing-page .landing-header nav button:hover {
+    color: #ffffff;
 }
 
 .landing-page .landing-surface {
@@ -46,8 +73,8 @@ html.dark {
 }
 
 .dark .landing-page .landing-surface {
-    border-color: rgba(255, 255, 255, .10);
-    background: rgba(15, 23, 42, .84);
+    border-color: rgba(148, 163, 184, .20);
+    background: rgba(15, 23, 42, .90);
     box-shadow: 0 24px 60px -34px rgba(0, 0, 0, .8);
 }
 
@@ -57,8 +84,8 @@ html.dark {
 }
 
 .dark .landing-page .landing-soft-surface {
-    border-color: rgba(255, 255, 255, .10);
-    background: rgba(255, 255, 255, .05);
+    border-color: rgba(148, 163, 184, .16);
+    background: rgba(30, 41, 59, .64);
 }
 
 .landing-page .landing-section-tint {
@@ -67,8 +94,8 @@ html.dark {
 }
 
 .dark .landing-page .landing-section-tint {
-    border-color: rgba(255, 255, 255, .10);
-    background: rgba(255, 255, 255, .025);
+    border-color: rgba(148, 163, 184, .14);
+    background: rgba(15, 23, 42, .42);
 }
 
 .landing-page .landing-secondary-action {
@@ -82,13 +109,13 @@ html.dark {
 }
 
 .dark .landing-page .landing-secondary-action {
-    border-color: rgba(255, 255, 255, .15);
-    background: rgba(255, 255, 255, .05);
-    color: #fff;
+    border-color: rgba(148, 163, 184, .28);
+    background: rgba(30, 41, 59, .72);
+    color: #f8fafc;
 }
 
 .dark .landing-page .landing-secondary-action:hover {
-    background: rgba(255, 255, 255, .10);
+    background: rgba(51, 65, 85, .88);
 }
 
 /* Client portal */
