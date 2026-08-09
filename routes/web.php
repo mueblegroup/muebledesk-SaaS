@@ -159,16 +159,32 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
     Route::post('/invoices/{invoice}/einvoice/submit', [EInvoiceController::class, 'submit'])->middleware(['plan.feature:einvoice', 'throttle:5,1'])->name('einvoices.submit');
     Route::post('/invoices/{invoice}/einvoice/refresh', [EInvoiceController::class, 'refresh'])->middleware(['plan.feature:einvoice', 'throttle:30,1'])->name('einvoices.refresh');
 
+    // Standalone payment management routes used by the Payments screen.
+    Route::get('/payments/export', [PaymentController::class, 'export'])->name('payments.export');
+    Route::get('/payments/create', [PaymentController::class, 'manualCreate'])->name('payments.create');
+    Route::post('/payments', [PaymentController::class, 'manualStore'])->name('payments.store');
     Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');
+    Route::get('/payments/{payment}/edit', [PaymentController::class, 'edit'])->name('payments.edit');
+    Route::put('/payments/{payment}', [PaymentController::class, 'update'])->name('payments.update');
+    Route::delete('/payments/{payment}', [PaymentController::class, 'destroy'])->name('payments.destroy');
+
     Route::get('/expenses/export', [ExpenseController::class, 'export'])->name('expenses.export');
-    Route::get('/expenses/export/pdf', [ExpenseController::class, 'exportPdf'])->name('expenses.export.pdf');
+    Route::get('/expenses/export/pdf', [ExpenseController::class, 'export'])->defaults('format', 'pdf')->name('expenses.export.pdf');
     Route::post('/expenses/bulk-delete', [ExpenseController::class, 'bulkDestroy'])->name('expenses.bulk_destroy');
     Route::resource('expenses', ExpenseController::class);
+
     Route::get('/reports/profit-loss', [ExpenseController::class, 'profitLoss'])->name('reports.profit_loss');
-    Route::get('/reports/profit-loss/export', [ExpenseController::class, 'exportProfitLoss'])->name('reports.profit_loss.export');
-    Route::get('/reports/profit-loss/export/pdf', [ExpenseController::class, 'exportProfitLossPdf'])->name('reports.profit_loss.export.pdf');
+    Route::get('/reports/profit-loss/export', [ExpenseController::class, 'profitLossExport'])->name('reports.profit_loss.export');
+    Route::get('/reports/profit-loss/export/pdf', [ExpenseController::class, 'profitLossExport'])->defaults('format', 'pdf')->name('reports.profit_loss.export.pdf');
     Route::redirect('/expenses/profit-loss', '/reports/profit-loss')->name('expenses.profit_loss');
 
+    // Custom recurring invoice routes must be declared before the resource route
+    // so static paths are not interpreted as {recurring_invoice} model keys.
+    Route::get('/recurring-invoices/export', [RecurringInvoiceController::class, 'export'])->name('recurring-invoices.export');
+    Route::post('/recurring-invoices/bulk-delete', [RecurringInvoiceController::class, 'bulkDestroy'])->name('recurring-invoices.bulk_destroy');
+    Route::get('/recurring-invoices/create-from-invoice/{invoice}', [RecurringInvoiceController::class, 'createFromInvoice'])->name('recurring-invoices.create-from-invoice');
+    Route::post('/recurring-invoices/create-from-invoice/{invoice}', [RecurringInvoiceController::class, 'storeFromInvoice'])->name('recurring-invoices.store-from-invoice');
+    Route::post('/recurring-invoices/{recurringInvoice}/toggle-active', [RecurringInvoiceController::class, 'toggleActive'])->name('recurring-invoices.toggle-active');
     Route::resource('recurring-invoices', RecurringInvoiceController::class);
 });
 
