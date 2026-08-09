@@ -9,12 +9,9 @@ class SystemGuideController extends Controller
 {
     public function index(): View
     {
-        return view('system-guide.index', $this->guideData());
-    }
+        abort_unless(Auth::user()?->isSuperAdmin(), 403);
 
-    public function clientPortal(): View
-    {
-        return view('system-guide.client-portal', $this->guideData());
+        return view('superadmin.system-guide', $this->guideData());
     }
 
     private function guideData(): array
