@@ -46,7 +46,6 @@ Route::middleware(['auth', 'verified', '2fa', 'role:superadmin'])
     ->name('superadmin.')
     ->group(function () {
         Route::get('/dashboard', [SuperAdminController::class, 'dashboard'])->name('dashboard');
-        Route::redirect('/subscription-plans', '/superadmin/plans');
         Route::get('/plans', [SuperAdminPlanController::class, 'index'])->name('plans.index');
         Route::post('/plans', [SuperAdminPlanController::class, 'store'])->name('plans.store');
         Route::put('/plans/{plan}', [SuperAdminPlanController::class, 'update'])->name('plans.update');
@@ -138,37 +137,17 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
     Route::get('/invoices/{invoice}/einvoice', [EInvoiceController::class, 'preview'])->middleware('plan.feature:einvoice')->name('einvoices.preview');
     Route::post('/invoices/{invoice}/einvoice/submit', [EInvoiceController::class, 'submit'])->middleware(['plan.feature:einvoice', 'throttle:5,1'])->name('einvoices.submit');
     Route::post('/invoices/{invoice}/einvoice/refresh', [EInvoiceController::class, 'refresh'])->middleware(['plan.feature:einvoice', 'throttle:30,1'])->name('einvoices.refresh');
-    Route::put('/invoices/{invoice}/einvoice/cancel', [EInvoiceController::class, 'cancel'])->middleware(['plan.feature:einvoice', 'throttle:3,1'])->name('einvoices.cancel');
 
-    Route::get('/payments/export', [PaymentController::class, 'export'])->name('payments.export');
-    Route::get('/payments/create', [PaymentController::class, 'manualCreate'])->name('payments.create');
-    Route::post('/payments', [PaymentController::class, 'manualStore'])->name('payments.store');
-    Route::resource('payments', PaymentController::class)->only(['index', 'show', 'edit', 'update', 'destroy']);
-
+    Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');
     Route::get('/expenses/export', [ExpenseController::class, 'export'])->name('expenses.export');
-    Route::get('/expenses/profit-loss/export', [ExpenseController::class, 'profitLossExport'])->name('expenses.profit_loss.export');
-    Route::get('/expenses/profit-loss', [ExpenseController::class, 'profitLoss'])->name('expenses.profit_loss');
+    Route::get('/expenses/export/pdf', [ExpenseController::class, 'exportPdf'])->name('expenses.export.pdf');
+    Route::post('/expenses/bulk-delete', [ExpenseController::class, 'bulkDestroy'])->name('expenses.bulk_destroy');
     Route::resource('expenses', ExpenseController::class);
+    Route::get('/reports/profit-loss', [ExpenseController::class, 'profitLoss'])->name('reports.profit_loss');
+    Route::get('/reports/profit-loss/export', [ExpenseController::class, 'exportProfitLoss'])->name('reports.profit_loss.export');
+    Route::get('/reports/profit-loss/export/pdf', [ExpenseController::class, 'exportProfitLossPdf'])->name('reports.profit_loss.export.pdf');
 
-    Route::get('/recurring-invoices/export', [RecurringInvoiceController::class, 'export'])->name('recurring-invoices.export');
-    Route::post('/recurring-invoices/bulk-delete', [RecurringInvoiceController::class, 'bulkDestroy'])->name('recurring-invoices.bulk_destroy');
     Route::resource('recurring-invoices', RecurringInvoiceController::class);
-    Route::get('invoices/{invoice}/create-recurring', [RecurringInvoiceController::class, 'createFromInvoice'])->name('recurring-invoices.create-from-invoice');
-    Route::post('invoices/{invoice}/store-recurring', [RecurringInvoiceController::class, 'storeFromInvoice'])->name('recurring-invoices.store-from-invoice');
-    Route::post('recurring-invoices/{recurringInvoice}/toggle-active', [RecurringInvoiceController::class, 'toggleActive'])->name('recurring-invoices.toggle-active');
-});
-
-Route::middleware(['auth', '2fa', 'role:customer'])->group(function () {
-    Route::redirect('/customer/dashboard', '/dashboard')->name('customer.dashboard');
-    Route::get('/my-einvoice-profile', [CustomerEInvoiceProfileController::class, 'edit'])->middleware('plan.feature:einvoice')->name('customer.einvoice-profile.edit');
-    Route::put('/my-einvoice-profile', [CustomerEInvoiceProfileController::class, 'update'])->middleware('plan.feature:einvoice')->name('customer.einvoice-profile.update');
-    Route::get('/my-invoices/export', [InvoiceController::class, 'customerExport'])->name('invoices.customer_export');
-    Route::get('/my-invoices', [InvoiceController::class, 'customerIndex'])->name('invoices.customer_index');
-    Route::get('/my-invoices/{invoice}', [InvoiceController::class, 'customerShow'])->name('invoices.customer_show');
-    Route::get('/my-invoices/{invoice}/download', [InvoiceController::class, 'customerDownloadPdf'])->name('invoices.customer_download');
-    Route::get('/my-invoices/{invoice}/einvoice', [EInvoiceController::class, 'preview'])->middleware('plan.feature:einvoice')->name('customer.einvoices.preview');
-    Route::post('/my-invoices/{invoice}/einvoice/submit', [EInvoiceController::class, 'submit'])->middleware(['plan.feature:einvoice', 'throttle:3,1'])->name('customer.einvoices.submit');
-    Route::post('/my-invoices/{invoice}/einvoice/refresh', [EInvoiceController::class, 'refresh'])->middleware(['plan.feature:einvoice', 'throttle:20,1'])->name('customer.einvoices.refresh');
 });
 
 require __DIR__.'/auth.php';
