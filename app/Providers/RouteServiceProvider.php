@@ -34,10 +34,20 @@ class RouteServiceProvider extends ServiceProvider
                 ->get('/admin/api-guide', [ApiGuideController::class, 'index'])
                 ->name('admin.api-guide.index');
 
-            // Keep the public SaaS homepage separate from the authenticated
-            // client portal and company IMS workspaces. This route is declared
-            // after routes/web.php so it replaces the legacy root redirect.
-            Route::middleware('web')->get('/', function () {
+            // Only the central/base domain may render the public marketing
+            // landing page. A resolved company subdomain is an application
+            // workspace entry point, never a public marketing surface.
+            Route::middleware('web')->get('/', function (Request $request) {
+                $host = strtolower($request->getHost());
+                $centralDomain = strtolower((string) config('saas.central_domain'));
+                $isCentralDomain = $centralDomain !== '' && $host === $centralDomain;
+
+                if (! $isCentralDomain) {
+                    return auth()->check()
+                        ? redirect()->route('dashboard')
+                        : redirect()->route('login');
+                }
+
                 if (! auth()->check()) {
                     return view('landing');
                 }
