@@ -45,8 +45,7 @@ main .document-action-row > span {
         box-shadow: 0 25px 50px -12px rgb(15 23 42 / .25) !important;
     }
 
-    body .min-h-screen > aside.translate-x-0,
-    body .min-h-screen > aside[class*="translate-x-0"] {
+    body .min-h-screen > aside[class~="translate-x-0"] {
         transform: translateX(0) !important;
     }
 
