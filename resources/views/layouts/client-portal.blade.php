@@ -49,9 +49,17 @@
                 $links = [
                     ['label' => 'Overview', 'route' => 'client-portal.dashboard', 'active' => 'client-portal.dashboard', 'icon' => '▦'],
                     ['label' => 'Create company', 'route' => 'companies.create', 'active' => 'companies.create', 'icon' => '+'],
-                    ['label' => 'System guide', 'route' => 'system-guide.index', 'active' => 'system-guide.*', 'icon' => '?'],
                     ['label' => 'Profile & security', 'route' => 'profile.edit', 'active' => 'profile.*', 'icon' => '◎'],
                 ];
+
+                if ($user?->isAdmin() && Route::has('admin.api-guide.index')) {
+                    array_splice($links, 2, 0, [[
+                        'label' => 'API Guide',
+                        'route' => 'admin.api-guide.index',
+                        'active' => 'admin.api-guide.*',
+                        'icon' => '⌘',
+                    ]]);
+                }
             @endphp
             @foreach ($links as $link)
                 <a href="{{ route($link['route']) }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ request()->routeIs($link['active']) ? 'bg-white text-slate-950 shadow-lg shadow-black/10' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
