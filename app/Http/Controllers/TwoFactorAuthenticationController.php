@@ -20,7 +20,7 @@ class TwoFactorAuthenticationController extends Controller
         }
 
         if (session('two_factor_passed') === true) {
-            return redirect()->intended(RouteServiceProvider::HOME);
+            return $this->postAuthenticationRedirect();
         }
 
         return view('auth.two-factor-challenge');
@@ -63,7 +63,7 @@ class TwoFactorAuthenticationController extends Controller
         $activityLogger->log($usedRecoveryCode ? 'security.two_factor_recovery_used' : 'security.two_factor_passed', 'Two-factor challenge passed', $user);
         $activityLogger->log('security.login', 'User logged in', $user);
 
-        return redirect()->intended(RouteServiceProvider::HOME);
+        return $this->postAuthenticationRedirect();
     }
 
     public function start(Request $request, TwoFactorService $twoFactorService, ActivityLogger $activityLogger): RedirectResponse
@@ -161,5 +161,24 @@ class TwoFactorAuthenticationController extends Controller
         $activityLogger->log('security.two_factor_disabled', 'Two-factor authentication disabled', $user);
 
         return back()->with('status', 'two-factor-disabled');
+    }
+
+    private function postAuthenticationRedirect(): RedirectResponse
+    {
+        $user = Auth::user();
+
+        if ($user?->isSuperAdmin()) {
+            return redirect()->intended(route('superadmin.dashboard'));
+        }
+
+        if (request()->attributes->has('currentCompany')) {
+            if ($user?->isCustomer() && ! $user->profile_completed_at) {
+                return redirect()->route('profile.edit');
+            }
+
+            return redirect()->intended(route('dashboard'));
+        }
+
+        return redirect()->intended(RouteServiceProvider::HOME);
     }
 }
