@@ -13,8 +13,8 @@
                 </p>
             </div>
             <div class="flex flex-wrap gap-2">
-                <a href="{{ route('expenses.profit_loss.export', array_merge(request()->query(), ['format' => 'csv'])) }}" class="btn-secondary">Export CSV</a>
-                <a href="{{ route('expenses.profit_loss.export', array_merge(request()->query(), ['format' => 'pdf'])) }}" class="btn-secondary">Export PDF</a>
+                <a href="{{ route('reports.profit_loss.export', array_merge(request()->query(), ['format' => 'csv'])) }}" class="btn-secondary">Export CSV</a>
+                <a href="{{ route('reports.profit_loss.export', array_merge(request()->query(), ['format' => 'pdf'])) }}" class="btn-secondary">Export PDF</a>
                 <a href="{{ route('expenses.index') }}" class="btn-secondary">Back to Expenses</a>
             </div>
         </div>
