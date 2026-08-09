@@ -12,7 +12,7 @@
  ['label'=>'Overview','route'=>'superadmin.dashboard','active'=>'superadmin.dashboard','icon'=>'▦'],
  ['label'=>'Companies','route'=>'superadmin.companies.index','active'=>'superadmin.companies.*','icon'=>'⌂'],
  ['label'=>'Users','route'=>'superadmin.users.index','active'=>'superadmin.users.*','icon'=>'◎'],
- ['label'=>'Plans','route'=>'superadmin.subscription-plans.index','active'=>'superadmin.subscription-plans.*','icon'=>'◇'],
+ ['label'=>'Plans','route'=>'superadmin.plans.index','active'=>'superadmin.plans.*','icon'=>'◇'],
  ['label'=>'Payments','route'=>'superadmin.payments.index','active'=>'superadmin.payments.*','icon'=>'¤'],
  ['label'=>'Platform settings','route'=>'superadmin.settings.index','active'=>'superadmin.settings.*','icon'=>'⚙'],
 ])
