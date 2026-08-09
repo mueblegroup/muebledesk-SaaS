@@ -6,6 +6,7 @@
             const saved = localStorage.getItem('muebledesk-theme') || 'system';
             const dark = saved === 'dark' || (saved === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
             document.documentElement.classList.toggle('dark', dark);
+            document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
         })();
     </script>
     <meta charset="utf-8">
@@ -16,7 +17,7 @@
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
+<body class="client-portal-page min-h-screen font-sans antialiased transition-colors duration-200">
 @php
     $portalUser = auth()->user();
     $selectedCompany = $company ?? $portalUser?->currentCompany ?? $portalUser?->companies()->with('subscription.plan')->first();
@@ -26,14 +27,14 @@
         : route('client-portal.dashboard');
 
     $navigation = [
-        ['label' => 'Overview', 'url' => route('client-portal.dashboard'), 'active' => request()->routeIs('client-portal.dashboard'), 'icon' => '⌂'],
-        ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋'],
-        ['label' => 'System guide', 'url' => route('client-portal.system-guide'), 'active' => request()->routeIs('client-portal.system-guide'), 'icon' => '▤'],
-        ['label' => 'Profile & security', 'url' => route('profile.edit'), 'active' => request()->routeIs('profile.*'), 'icon' => '◎'],
-        ['label' => 'Plans & billing', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.*'), 'icon' => '◇'],
+        ['label' => 'Overview', 'url' => route('client-portal.dashboard'), 'active' => request()->routeIs('client-portal.dashboard'), 'icon' => '⌂', 'show' => true],
+        ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋', 'show' => true],
+        ['label' => 'API guide', 'url' => Route::has('admin.api-guide.index') ? route('admin.api-guide.index') : '#', 'active' => request()->routeIs('admin.api-guide.*'), 'icon' => '⌘', 'show' => $portalUser?->isAdmin() && Route::has('admin.api-guide.index')],
+        ['label' => 'Profile & security', 'url' => route('profile.edit'), 'active' => request()->routeIs('profile.*'), 'icon' => '◎', 'show' => true],
+        ['label' => 'Plans & billing', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.*'), 'icon' => '◇', 'show' => true],
     ];
 @endphp
-<div x-data="{ sidebarOpen: false }" class="min-h-screen lg:flex">
+<div x-data="{ sidebarOpen: false, theme: window.getTheme ? window.getTheme() : 'system' }" @theme-changed.window="theme = $event.detail.theme" class="min-h-screen lg:flex">
     <div x-cloak x-show="sidebarOpen" x-transition.opacity class="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm lg:hidden" @click="sidebarOpen = false"></div>
 
     <aside class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-white/10 bg-slate-950 text-white shadow-2xl transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 lg:shadow-none" :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
@@ -47,14 +48,21 @@
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-4 py-5">
             @foreach ($navigation as $item)
-                <a href="{{ $item['url'] }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ $item['active'] ? 'bg-white text-slate-950 shadow-lg shadow-black/10' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
-                    <span class="flex h-8 w-8 items-center justify-center rounded-xl {{ $item['active'] ? 'bg-slate-100' : 'bg-white/10' }}">{{ $item['icon'] }}</span>
-                    <span>{{ $item['label'] }}</span>
-                </a>
+                @if($item['show'])
+                    <a href="{{ $item['url'] }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ $item['active'] ? 'bg-white text-slate-950 shadow-lg shadow-black/10' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
+                        <span class="flex h-8 w-8 items-center justify-center rounded-xl {{ $item['active'] ? 'bg-slate-100' : 'bg-white/10' }}">{{ $item['icon'] }}</span>
+                        <span>{{ $item['label'] }}</span>
+                    </a>
+                @endif
             @endforeach
         </nav>
 
         <div class="border-t border-white/10 p-4">
+            <div class="portal-theme-toggle mb-3 grid grid-cols-3 gap-2 rounded-2xl bg-white/5 p-2 text-[11px] font-bold">
+                <button type="button" @click="window.setTheme('light')" :class="theme === 'light' ? 'bg-white text-slate-950' : 'text-slate-400 hover:bg-white/10 hover:text-white'" class="rounded-xl px-2 py-2">Light</button>
+                <button type="button" @click="window.setTheme('dark')" :class="theme === 'dark' ? 'bg-white text-slate-950' : 'text-slate-400 hover:bg-white/10 hover:text-white'" class="rounded-xl px-2 py-2">Dark</button>
+                <button type="button" @click="window.setTheme('system')" :class="theme === 'system' ? 'bg-white text-slate-950' : 'text-slate-400 hover:bg-white/10 hover:text-white'" class="rounded-xl px-2 py-2">System</button>
+            </div>
             <div class="rounded-2xl bg-white/5 p-4">
                 <p class="truncate text-sm font-extrabold">{{ $portalUser?->name }}</p>
                 <p class="truncate text-xs text-slate-400">{{ $portalUser?->email }}</p>
@@ -72,9 +80,9 @@
         </header>
 
         <main class="min-h-[calc(100vh-5rem)]"><div class="mx-auto max-w-[1600px] px-4 py-7 sm:px-6 lg:px-10 lg:py-10">
-            @if (session('success'))<div class="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{{ session('success') }}</div>@endif
-            @if (session('error'))<div class="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">{{ session('error') }}</div>@endif
-            @if ($errors->any())<div class="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">{{ $errors->first() }}</div>@endif
+            @if (session('success'))<div class="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300">{{ session('success') }}</div>@endif
+            @if (session('error'))<div class="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">{{ session('error') }}</div>@endif
+            @if ($errors->any())<div class="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">{{ $errors->first() }}</div>@endif
             {{ $slot }}
         </div></main>
     </div>
