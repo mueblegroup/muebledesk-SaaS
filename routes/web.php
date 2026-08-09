@@ -46,6 +46,7 @@ Route::middleware(['auth', 'verified', '2fa', 'role:superadmin'])
     ->name('superadmin.')
     ->group(function () {
         Route::get('/dashboard', [SuperAdminController::class, 'dashboard'])->name('dashboard');
+        Route::redirect('/subscription-plans', '/superadmin/plans')->name('subscription-plans.index');
         Route::get('/plans', [SuperAdminPlanController::class, 'index'])->name('plans.index');
         Route::post('/plans', [SuperAdminPlanController::class, 'store'])->name('plans.store');
         Route::put('/plans/{plan}', [SuperAdminPlanController::class, 'update'])->name('plans.update');
