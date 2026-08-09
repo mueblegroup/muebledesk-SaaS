@@ -1,5 +1,6 @@
 import '../css/saas-theme.css';
 import '../css/responsive-admin.css';
+import '../css/portal-theme.css';
 import './bootstrap';
 import './theme';
 import Chart from 'chart.js/auto';
