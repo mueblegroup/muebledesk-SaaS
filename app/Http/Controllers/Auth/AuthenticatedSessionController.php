@@ -38,6 +38,10 @@ class AuthenticatedSessionController extends Controller
         }
 
         if ($request->attributes->has('currentCompany')) {
+            if (Auth::user()?->isCustomer() && ! Auth::user()?->profile_completed_at) {
+                return redirect()->route('profile.edit');
+            }
+
             return redirect()->intended(route('dashboard'));
         }
 
