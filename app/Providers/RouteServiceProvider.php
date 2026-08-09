@@ -34,15 +34,15 @@ class RouteServiceProvider extends ServiceProvider
                 ->get('/admin/api-guide', [ApiGuideController::class, 'index'])
                 ->name('admin.api-guide.index');
 
-            // Only the central/base domain may render the public marketing
-            // landing page. A resolved company subdomain is an application
-            // workspace entry point, never a public marketing surface.
+            // The public marketing page belongs exclusively to the configured
+            // SaaS root domain. Every other hostname (including valid company
+            // subdomains) is treated as an application/workspace host.
             Route::middleware('web')->get('/', function (Request $request) {
-                $host = strtolower($request->getHost());
-                $centralDomain = strtolower((string) config('saas.central_domain'));
-                $isCentralDomain = $centralDomain !== '' && $host === $centralDomain;
+                $host = strtolower(rtrim($request->getHost(), '.'));
+                $rootDomain = strtolower(rtrim((string) config('saas.root_domain'), '.'));
+                $isMarketingHost = $rootDomain !== '' && hash_equals($rootDomain, $host);
 
-                if (! $isCentralDomain) {
+                if (! $isMarketingHost) {
                     return auth()->check()
                         ? redirect()->route('dashboard')
                         : redirect()->route('login');
