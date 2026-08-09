@@ -100,7 +100,7 @@
             <a href="{{ route('quotations.create') }}" class="btn-secondary">Create Quotation</a>
             <a href="{{ route('invoices.create') }}" class="btn-secondary">Create Invoice</a>
             <a href="{{ route('expenses.create') }}" class="btn-secondary">Record Expense</a>
-            <a href="{{ route('expenses.profit_loss') }}" class="btn-secondary">P&L Report</a>
+            <a href="{{ route('reports.profit_loss') }}" class="btn-secondary">P&L Report</a>
         </section>
     </div>
 </x-app-layout>
