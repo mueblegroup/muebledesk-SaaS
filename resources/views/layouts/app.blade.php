@@ -46,6 +46,7 @@
                 ['label' => 'Users', 'route' => 'users.index', 'active' => 'users.*', 'show' => $user?->isAdmin(), 'icon' => '👥'],
                 ['label' => 'Settings', 'route' => 'admin.setting.index', 'active' => 'admin.setting.*', 'show' => $user?->isAdmin(), 'icon' => '⚙️'],
                 ['label' => 'API Keys', 'route' => 'admin.api-keys.index', 'active' => 'admin.api-keys.*', 'show' => $user?->isAdmin(), 'icon' => '🔑'],
+                ['label' => 'API Guide', 'route' => 'admin.api-guide.index', 'active' => 'admin.api-guide.*', 'show' => $user?->isAdmin(), 'icon' => '📘'],
                 ['label' => 'Activity Logs', 'route' => 'admin.activity-logs.index', 'active' => 'admin.activity-logs.*', 'show' => $user?->isAdmin(), 'icon' => '🧾'],
             ]],
             ['key' => 'customer', 'label' => 'Customer Portal', 'icon' => '📄', 'items' => [
@@ -53,7 +54,6 @@
                 ['label' => 'My e-Invoice Profile', 'route' => 'customer.einvoice-profile.edit', 'active' => 'customer.einvoice-profile.*', 'show' => $user?->isCustomer(), 'icon' => '🪪'],
             ]],
             ['key' => 'account', 'label' => 'Account', 'icon' => '👤', 'items' => [
-                ['label' => 'System Guide', 'route' => 'system-guide.index', 'active' => 'system-guide.*', 'show' => true, 'icon' => '📚'],
                 ['label' => 'Profile & Security', 'route' => 'profile.edit', 'active' => 'profile.*', 'show' => true, 'icon' => '👤'],
             ]],
         ];
