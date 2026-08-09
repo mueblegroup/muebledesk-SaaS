@@ -45,22 +45,36 @@ class ResolveCompanyTenant
         ]);
 
         if ($request->user()) {
-            $membership = $request->user()
-                ->companies()
-                ->whereKey($company->getKey())
-                ->first();
+            $user = $request->user();
 
-            abort_unless($membership, 403, 'You do not have access to this company workspace.');
+            if ($user->isCustomer()) {
+                // Customer accounts are linked to a tenant through clients.company_id,
+                // not necessarily through the company_user membership pivot.
+                $customerClient = $user->clients;
 
-            if ((int) $request->user()->current_company_id !== (int) $company->getKey()) {
-                $request->user()->forceFill([
-                    'current_company_id' => $company->getKey(),
-                ])->save();
+                abort_unless(
+                    $customerClient && (int) $customerClient->company_id === (int) $company->getKey(),
+                    403,
+                    'You do not have access to this company workspace.'
+                );
+            } else {
+                $membership = $user
+                    ->companies()
+                    ->whereKey($company->getKey())
+                    ->first();
+
+                abort_unless($membership, 403, 'You do not have access to this company workspace.');
+
+                if ($membership->pivot->role === 'owner' && ! $user->isAdmin()) {
+                    $user->forceFill([
+                        'role' => UserRoleEnum::Admin,
+                    ])->save();
+                }
             }
 
-            if ($membership->pivot->role === 'owner' && ! $request->user()->isAdmin()) {
-                $request->user()->forceFill([
-                    'role' => UserRoleEnum::Admin,
+            if ((int) $user->current_company_id !== (int) $company->getKey()) {
+                $user->forceFill([
+                    'current_company_id' => $company->getKey(),
                 ])->save();
             }
         }
