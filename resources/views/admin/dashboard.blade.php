@@ -26,7 +26,7 @@
                 <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Company spending</p>
             </a>
 
-            <a href="{{ route('expenses.profit_loss') }}" class="stat-card">
+            <a href="{{ route('reports.profit_loss') }}" class="stat-card">
                 <span class="text-sm font-bold text-slate-500 dark:text-slate-400">Net This Month</span>
                 <p class="mt-3 text-3xl font-black {{ $netProfitThisMonth >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400' }}">RM {{ number_format($netProfitThisMonth, 2) }}</p>
                 <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Revenue minus expenses</p>
@@ -97,7 +97,7 @@
             <a href="{{ route('quotations.index') }}" class="btn-secondary">Manage Quotations</a>
             <a href="{{ route('invoices.index') }}" class="btn-secondary">Manage Invoices</a>
             <a href="{{ route('expenses.create') }}" class="btn-secondary">Record Expense</a>
-            <a href="{{ route('expenses.profit_loss') }}" class="btn-secondary">P&L Report</a>
+            <a href="{{ route('reports.profit_loss') }}" class="btn-secondary">P&L Report</a>
             <a href="{{ route('admin.activity-logs.index') }}" class="btn-secondary">Activity Logs</a>
         </section>
     </div>
