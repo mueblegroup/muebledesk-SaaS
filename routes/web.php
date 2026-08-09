@@ -31,16 +31,6 @@ use App\Http\Controllers\Webhook\StripeWebhookController;
 use App\Http\Middleware\NormalizeClientCountryCode;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    if (! auth()->check()) {
-        return redirect()->route('login');
-    }
-
-    return auth()->user()->isSuperAdmin()
-        ? redirect()->route('superadmin.dashboard')
-        : redirect()->route('client-portal.dashboard');
-});
-
 Route::post('/hitpay/webhook', [HitPayWebhookController::class, 'handle'])->name('hitpay.webhook');
 Route::post('/stripe/webhook', [StripeWebhookController::class, 'handle'])->name('stripe.webhook');
 Route::post('/stripe/platform/webhook', [StripePlatformWebhookController::class, 'handle'])->name('stripe.platform.webhook');
@@ -86,7 +76,6 @@ Route::get('/dashboard', [DashboardController::class, 'index'])
 
 Route::middleware(['auth', '2fa'])->group(function () {
     Route::get('/search', [SearchController::class, 'index'])->name('search.index');
-    Route::get('/system-guide', [SystemGuideController::class, 'index'])->name('system-guide.index');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
