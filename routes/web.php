@@ -76,7 +76,9 @@ Route::get('/dashboard', [DashboardController::class, 'index'])
     ->name('dashboard');
 
 Route::middleware(['auth', '2fa'])->group(function () {
-    Route::get('/search', [SearchController::class, 'index'])->name('search.index');
+    Route::get('/search', [SearchController::class, 'index'])
+        ->middleware('role:admin,employee')
+        ->name('search.index');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -88,9 +90,11 @@ Route::middleware(['auth', '2fa'])->group(function () {
     Route::post('/profile/two-factor/recovery-codes', [TwoFactorAuthenticationController::class, 'regenerateRecoveryCodes'])->name('two-factor.recovery-codes');
     Route::delete('/profile/two-factor', [TwoFactorAuthenticationController::class, 'disable'])->name('two-factor.disable');
 
-    Route::get('/payments/{payment}/receipt', [PaymentController::class, 'downloadReceipt'])->name('payments.receipt');
+    Route::get('/payments/{payment}/receipt', [PaymentController::class, 'downloadReceipt'])
+        ->middleware('role:admin,employee,customer')
+        ->name('payments.receipt');
     Route::post('/myinvois/taxpayers/search', [MyInvoisTaxpayerController::class, 'search'])
-        ->middleware(['plan.feature:einvoice', 'throttle:10,1'])
+        ->middleware(['role:admin,employee', 'plan.feature:einvoice', 'throttle:10,1'])
         ->name('myinvois.taxpayers.search');
 });
 
@@ -159,7 +163,6 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
     Route::post('/invoices/{invoice}/einvoice/submit', [EInvoiceController::class, 'submit'])->middleware(['plan.feature:einvoice', 'throttle:5,1'])->name('einvoices.submit');
     Route::post('/invoices/{invoice}/einvoice/refresh', [EInvoiceController::class, 'refresh'])->middleware(['plan.feature:einvoice', 'throttle:30,1'])->name('einvoices.refresh');
 
-    // Standalone payment management routes used by the Payments screen.
     Route::get('/payments/export', [PaymentController::class, 'export'])->name('payments.export');
     Route::get('/payments/create', [PaymentController::class, 'manualCreate'])->name('payments.create');
     Route::post('/payments', [PaymentController::class, 'manualStore'])->name('payments.store');
@@ -178,8 +181,6 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
     Route::get('/reports/profit-loss/export/pdf', [ExpenseController::class, 'profitLossExport'])->defaults('format', 'pdf')->name('reports.profit_loss.export.pdf');
     Route::redirect('/expenses/profit-loss', '/reports/profit-loss')->name('expenses.profit_loss');
 
-    // Custom recurring invoice routes must be declared before the resource route
-    // so static paths are not interpreted as {recurring_invoice} model keys.
     Route::get('/recurring-invoices/export', [RecurringInvoiceController::class, 'export'])->name('recurring-invoices.export');
     Route::post('/recurring-invoices/bulk-delete', [RecurringInvoiceController::class, 'bulkDestroy'])->name('recurring-invoices.bulk_destroy');
     Route::get('/recurring-invoices/create-from-invoice/{invoice}', [RecurringInvoiceController::class, 'createFromInvoice'])->name('recurring-invoices.create-from-invoice');
