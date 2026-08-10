@@ -99,45 +99,11 @@ class ClientPortalBillingController extends Controller
                         ->with('warning', 'Your extension payment is still being processed by Stripe.');
                 }
 
-                $subscriptionPayload = $session['subscription'] ?? null;
-                $subscriptionId = is_array($subscriptionPayload)
-                    ? (string) ($subscriptionPayload['id'] ?? '')
-                    : (string) ($subscriptionPayload ?? '');
+                if (($session['payment_status'] ?? null) === 'paid') {
+                    $this->activateFromCheckout($company, $session, $stripe);
 
-                $subscriptionData = is_array($subscriptionPayload) ? $subscriptionPayload : [];
-
-                if ($subscriptionId !== '') {
-                    $subscriptionData = $stripe->retrieveSubscription($subscriptionId);
-                }
-
-                $plan = PlatformSubscriptionPlan::find((int) ($session['metadata']['plan_id'] ?? 0));
-                $startsAt = isset($subscriptionData['current_period_start'])
-                    ? now()->setTimestamp($subscriptionData['current_period_start'])
-                    : now();
-                $expiresAt = isset($subscriptionData['current_period_end'])
-                    ? now()->setTimestamp($subscriptionData['current_period_end'])
-                    : $plan?->calculateExpiry($startsAt);
-                $status = (string) ($subscriptionData['status'] ?? 'incomplete');
-
-                $record = $company->subscription()->updateOrCreate([], [
-                    'platform_subscription_plan_id' => $plan?->id,
-                    'status' => $status,
-                    'stripe_customer_id' => $subscriptionData['customer'] ?? $session['customer'] ?? null,
-                    'stripe_subscription_id' => $subscriptionId ?: null,
-                    'stripe_checkout_session_id' => $session['id'] ?? $sessionId,
-                    'starts_at' => $startsAt,
-                    'expires_at' => $expiresAt,
-                    'current_period_starts_at' => $startsAt,
-                    'current_period_ends_at' => $expiresAt,
-                    'auto_renew' => ! (bool) ($subscriptionData['cancel_at_period_end'] ?? false),
-                    'is_enabled' => ! in_array($status, ['canceled', 'unpaid', 'incomplete_expired'], true),
-                    'renewal_failure_count' => 0,
-                    'last_renewal_error' => null,
-                ]);
-
-                if (($session['payment_status'] ?? null) === 'paid' && $record->status === 'incomplete') {
-                    $latest = $stripe->retrieveSubscription((string) $record->stripe_subscription_id);
-                    $this->syncFromStripe($record, $latest);
+                    return redirect()->route('client-portal.billing.index', $company)
+                        ->with('success', 'Payment received. Your workspace subscription is now active.');
                 }
             } catch (Throwable $exception) {
                 report($exception);
@@ -145,33 +111,75 @@ class ClientPortalBillingController extends Controller
         }
 
         return redirect()->route('client-portal.billing.index', $company)
-            ->with('success', 'Payment received. Subscription status has been refreshed from Stripe.');
-    }
-
-    public function toggleAutoRenew(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
-    {
-        $this->authorizeCompany($request, $company, ownerOnly: true);
-        $subscription = $company->subscription;
-        abort_unless($subscription, 404);
-
-        try {
-            $stripe->setAutoRenew($subscription, $request->boolean('auto_renew'));
-            return back()->with('success', 'Auto-renew setting updated.');
-        } catch (Throwable $exception) {
-            report($exception);
-            return back()->with('error', $exception->getMessage());
-        }
+            ->with('warning', 'We could not confirm the payment yet. The billing page will reflect it after Stripe synchronization.');
     }
 
     public function portal(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
     {
         $this->authorizeCompany($request, $company, ownerOnly: true);
+        $company->load('subscription');
+
         try {
-            return redirect()->away($stripe->createBillingPortalSession($company, route('client-portal.billing.index', $company))['url']);
+            return redirect()->away($stripe->createBillingPortalSession(
+                $company,
+                route('client-portal.billing.index', $company)
+            )['url']);
         } catch (Throwable $exception) {
             report($exception);
             return back()->with('error', $exception->getMessage());
         }
+    }
+
+    private function activateFromCheckout(Company $company, array $session, StripePlatformBillingService $stripe): void
+    {
+        $plan = PlatformSubscriptionPlan::findOrFail((int) ($session['metadata']['plan_id'] ?? 0));
+        $subscriptionId = (string) ($session['subscription'] ?? '');
+        $subscriptionData = $subscriptionId !== '' ? $stripe->retrieveSubscription($subscriptionId) : [];
+        $startsAt = isset($subscriptionData['current_period_start']) ? now()->setTimestamp($subscriptionData['current_period_start']) : now();
+        $remoteEnd = isset($subscriptionData['current_period_end']) ? now()->setTimestamp($subscriptionData['current_period_end']) : null;
+        $expiresAt = $plan->calculateExpiry($startsAt);
+        if ($remoteEnd && (! $expiresAt || $remoteEnd->greaterThan($expiresAt))) {
+            $expiresAt = $remoteEnd;
+        }
+
+        $subscription = CompanySubscription::updateOrCreate(
+            ['company_id' => $company->id],
+            [
+                'platform_subscription_plan_id' => $plan->id,
+                'status' => (string) ($subscriptionData['status'] ?? 'active'),
+                'seats' => max(1, (int) ($session['metadata']['seats'] ?? 1)),
+                'is_enabled' => true,
+                'auto_renew' => ! (bool) ($subscriptionData['cancel_at_period_end'] ?? false),
+                'starts_at' => $startsAt,
+                'expires_at' => $expiresAt,
+                'current_period_starts_at' => $startsAt,
+                'current_period_ends_at' => $remoteEnd,
+                'stripe_customer_id' => $session['customer'] ?? null,
+                'stripe_subscription_id' => $subscriptionId ?: null,
+                'stripe_checkout_session_id' => $session['id'] ?? null,
+                'renewal_failure_count' => 0,
+                'last_renewal_error' => null,
+            ]
+        );
+
+        SubscriptionPayment::updateOrCreate(
+            ['provider' => 'stripe', 'provider_invoice_id' => (string) ($session['id'] ?? '')],
+            [
+                'company_id' => $company->id,
+                'company_subscription_id' => $subscription->id,
+                'platform_subscription_plan_id' => $plan->id,
+                'provider_payment_id' => $session['payment_intent'] ?? null,
+                'provider_customer_id' => $session['customer'] ?? null,
+                'status' => 'paid',
+                'amount' => ((int) ($session['amount_total'] ?? 0)) / 100,
+                'currency' => strtoupper($session['currency'] ?? $plan->currency),
+                'description' => $plan->name.' subscription',
+                'paid_at' => now(),
+                'failed_at' => null,
+                'failure_message' => null,
+                'metadata' => ['checkout_session_id' => $session['id'] ?? null],
+            ]
+        );
     }
 
     private function applyExtension(Company $company, array $session, StripePlatformBillingService $stripe): void
@@ -272,7 +280,17 @@ class ClientPortalBillingController extends Controller
 
     private function authorizeCompany(Request $request, Company $company, bool $ownerOnly = false): void
     {
-        abort_unless($request->user()->companies()->whereKey($company->id)->exists(), 403);
-        abort_if($ownerOnly && ! $request->user()->ownsCompany($company), 403);
+        $membership = $request->user()->companies()
+            ->whereKey($company->id)
+            ->first();
+
+        abort_unless($membership, 403);
+
+        if ($ownerOnly) {
+            abort_unless($membership->pivot->role === 'owner', 403);
+            return;
+        }
+
+        abort_unless(in_array($membership->pivot->role, ['owner', 'admin'], true), 403);
     }
 }
