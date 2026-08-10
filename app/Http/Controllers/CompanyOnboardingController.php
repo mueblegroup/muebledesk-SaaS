@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\UserRoleEnum;
 use App\Models\Company;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,9 +13,9 @@ class CompanyOnboardingController extends Controller
 {
     public function create(Request $request): View|RedirectResponse
     {
-        if ($request->user()->companies()->exists()) {
-            return redirect()->route('client-portal.dashboard')
-                ->with('warning', 'Your account already has a company.');
+        if (! $request->user()->profile_completed_at) {
+            return redirect()->route('profile.edit')
+                ->with('warning', 'Complete your account profile before creating a company.');
         }
 
         return view('onboarding.company');
@@ -24,9 +23,9 @@ class CompanyOnboardingController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        if ($request->user()->companies()->exists()) {
-            return redirect()->route('client-portal.dashboard')
-                ->with('warning', 'Your account already has a company.');
+        if (! $request->user()->profile_completed_at) {
+            return redirect()->route('profile.edit')
+                ->with('warning', 'Complete your account profile before creating a company.');
         }
 
         $validated = $request->validate([
@@ -61,9 +60,11 @@ class CompanyOnboardingController extends Controller
                 'joined_at' => now(),
             ]);
 
+            // Keep users.role as the account-level/legacy identity. Workspace
+            // administration is derived from the company pivot, so an employee
+            // can own this company without becoming an admin in their employer's.
             $request->user()->forceFill([
                 'current_company_id' => $company->id,
-                'role' => UserRoleEnum::Admin,
             ])->save();
 
             return $company;
