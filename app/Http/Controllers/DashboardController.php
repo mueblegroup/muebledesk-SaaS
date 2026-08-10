@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\UserRoleEnum;
 use App\Models\Client;
 use App\Models\Expense;
 use App\Models\Invoice;
@@ -35,12 +34,19 @@ class DashboardController extends Controller
             return redirect()->away($centralUrl);
         }
 
-        return match ($user->role) {
-            UserRoleEnum::Admin => $this->adminDashboard(),
-            UserRoleEnum::Employee => $this->employeeDashboard(),
-            UserRoleEnum::Customer => $this->customerDashboard(),
-            default => view('dashboard'),
-        };
+        if ($user->isAdmin()) {
+            return $this->adminDashboard();
+        }
+
+        if ($user->isEmployee()) {
+            return $this->employeeDashboard();
+        }
+
+        if ($user->isCustomer()) {
+            return $this->customerDashboard();
+        }
+
+        abort(403, 'You do not have access to this company workspace.');
     }
 
     public function adminDashboard(): View
