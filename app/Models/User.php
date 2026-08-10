@@ -61,9 +61,42 @@ class User extends Authenticatable implements MustVerifyEmail
     public function quotations() { return $this->hasMany(Quotation::class, 'employee_id'); }
     public function invoices() { return $this->hasMany(Invoice::class, 'employee_id'); }
     public function recurringInvoices() { return $this->hasMany(RecurringInvoice::class, 'employee_id'); }
+
+    /**
+     * Resolve this user's role inside the currently resolved company workspace.
+     *
+     * The central SaaS portal keeps using the account-level role for legacy and
+     * superadmin behaviour, while tenant subdomains derive permissions from the
+     * company membership pivot (owner/admin/member) or the linked Client record.
+     */
+    public function workspaceRole(?Company $company = null): ?string
+    {
+        $company ??= app()->bound('currentCompany') ? app('currentCompany') : null;
+
+        if (! $company) {
+            return $this->role?->value;
+        }
+
+        $membership = $this->companies()
+            ->whereKey($company->getKey())
+            ->first();
+
+        if ($membership) {
+            return in_array($membership->pivot->role, ['owner', 'admin'], true)
+                ? 'admin'
+                : 'employee';
+        }
+
+        if ($this->clients()->where('company_id', $company->getKey())->exists()) {
+            return 'customer';
+        }
+
+        return null;
+    }
+
     public function hasTwoFactorEnabled(): bool { return ! empty($this->two_factor_secret) && ! is_null($this->two_factor_enabled_at); }
     public function isSuperAdmin(): bool { return $this->role === UserRoleEnum::SuperAdmin; }
-    public function isAdmin(): bool { return $this->role === UserRoleEnum::Admin; }
-    public function isEmployee(): bool { return $this->role === UserRoleEnum::Employee; }
-    public function isCustomer(): bool { return $this->role === UserRoleEnum::Customer; }
+    public function isAdmin(): bool { return $this->workspaceRole() === 'admin'; }
+    public function isEmployee(): bool { return $this->workspaceRole() === 'employee'; }
+    public function isCustomer(): bool { return $this->workspaceRole() === 'customer'; }
 }
