@@ -2,7 +2,6 @@
 
 namespace App\Http\Middleware;
 
-use App\Enums\UserRoleEnum;
 use App\Models\Company;
 use App\Models\Setting;
 use Closure;
@@ -46,31 +45,13 @@ class ResolveCompanyTenant
 
         if ($request->user()) {
             $user = $request->user();
+            $workspaceRole = $user->workspaceRole($company);
 
-            if ($user->isCustomer()) {
-                // Customer accounts are linked to a tenant through clients.company_id,
-                // not necessarily through the company_user membership pivot.
-                $customerClient = $user->clients;
-
-                abort_unless(
-                    $customerClient && (int) $customerClient->company_id === (int) $company->getKey(),
-                    403,
-                    'You do not have access to this company workspace.'
-                );
-            } else {
-                $membership = $user
-                    ->companies()
-                    ->whereKey($company->getKey())
-                    ->first();
-
-                abort_unless($membership, 403, 'You do not have access to this company workspace.');
-
-                if ($membership->pivot->role === 'owner' && ! $user->isAdmin()) {
-                    $user->forceFill([
-                        'role' => UserRoleEnum::Admin,
-                    ])->save();
-                }
-            }
+            abort_unless(
+                in_array($workspaceRole, ['admin', 'employee', 'customer'], true),
+                403,
+                'You do not have access to this company workspace.'
+            );
 
             if ((int) $user->current_company_id !== (int) $company->getKey()) {
                 $user->forceFill([
