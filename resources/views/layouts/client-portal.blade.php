@@ -29,9 +29,13 @@
 <body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
 @php
     $user = auth()->user();
-    $companies = $user?->companies()->with('subscription.plan')->orderBy('name')->get() ?? collect();
-    $currentCompany = $user?->currentCompany;
-    $billingCompany = $currentCompany ?: $companies->first();
+    $companies = $user?->companies()
+        ->wherePivotIn('role', ['owner', 'admin'])
+        ->with('subscription.plan')
+        ->orderBy('name')
+        ->get() ?? collect();
+    $currentCompany = $companies->firstWhere('id', $user?->current_company_id) ?: $companies->first();
+    $billingCompany = $currentCompany;
 @endphp
 <div x-data="{ sidebarOpen: false, theme: window.muebleTheme.get() }" @mueble-theme-changed.window="theme = $event.detail" class="min-h-screen lg:flex">
     <div x-show="sidebarOpen" x-cloak x-transition.opacity class="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm lg:hidden" @click="sidebarOpen = false"></div>
@@ -51,15 +55,6 @@
                     ['label' => 'Create company', 'route' => 'companies.create', 'active' => 'companies.create', 'icon' => '+'],
                     ['label' => 'Profile & security', 'route' => 'profile.edit', 'active' => 'profile.*', 'icon' => '◎'],
                 ];
-
-                if ($user?->isAdmin() && Route::has('admin.api-guide.index')) {
-                    array_splice($links, 2, 0, [[
-                        'label' => 'API Guide',
-                        'route' => 'admin.api-guide.index',
-                        'active' => 'admin.api-guide.*',
-                        'icon' => '⌘',
-                    ]]);
-                }
             @endphp
             @foreach ($links as $link)
                 <a href="{{ route($link['route']) }}" class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition {{ request()->routeIs($link['active']) ? 'bg-white text-slate-950 shadow-lg shadow-black/10' : 'text-slate-300 hover:bg-white/10 hover:text-white' }}">
