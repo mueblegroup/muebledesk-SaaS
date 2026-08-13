@@ -17,16 +17,15 @@ class PaymentGatewayService
                 return null;
             }
 
-            return match (Setting::get('payment_gateway', 'hitpay')) {
-                'stripe' => $this->createStripeCheckoutLink($invoice),
-                'hitpay' => $this->createHitPayLink($invoice),
-                default => null,
-            };
+            // Stripe is the only active invoice payment gateway for production.
+            // Legacy HitPay support is intentionally retained below for historical
+            // compatibility, but it is no longer selected for new payment links.
+            return $this->createStripeCheckoutLink($invoice);
         } catch (\Throwable $e) {
             Log::error('Payment link generation failed safely', [
                 'invoice_id' => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,
-                'gateway' => Setting::get('payment_gateway', 'hitpay'),
+                'gateway' => 'stripe',
                 'message' => $e->getMessage(),
             ]);
 
