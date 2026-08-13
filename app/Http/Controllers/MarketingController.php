@@ -4,13 +4,33 @@ namespace App\Http\Controllers;
 
 use App\Models\PlatformSetting;
 use App\Models\PlatformSubscriptionPlan;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 class MarketingController extends Controller
 {
-    public function home(): View
+    public function home(Request $request): View|RedirectResponse
     {
+        $host = strtolower(rtrim($request->getHost(), '.'));
+        $rootDomain = strtolower(rtrim((string) config('saas.root_domain'), '.'));
+        $isMarketingHost = $rootDomain !== '' && hash_equals($rootDomain, $host);
+
+        // Marketing content is only for the central SaaS domain. Tenant
+        // subdomains should enter the workspace authentication/application flow.
+        if (! $isMarketingHost) {
+            return auth()->check()
+                ? redirect()->route('dashboard')
+                : redirect()->route('login');
+        }
+
+        if (auth()->check()) {
+            return auth()->user()->isSuperAdmin()
+                ? redirect()->route('superadmin.dashboard')
+                : redirect()->route('client-portal.dashboard');
+        }
+
         return view('marketing.home');
     }
 
