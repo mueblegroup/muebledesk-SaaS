@@ -3,9 +3,11 @@
 <head>
     <script>
         (() => {
-            const theme = localStorage.getItem('theme') || 'system';
+            const theme = localStorage.getItem('muebledesk-theme') || 'system';
             const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && prefersDark));
+            const dark = theme === 'dark' || (theme === 'system' && prefersDark);
+            document.documentElement.classList.toggle('dark', dark);
+            document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
         })();
     </script>
     <meta charset="utf-8">
@@ -17,20 +19,20 @@
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="font-sans antialiased soft-gradient">
+<body class="min-h-screen bg-slate-50 font-sans text-slate-950 antialiased transition-colors duration-200 dark:bg-slate-950 dark:text-white">
 <main class="min-h-screen lg:grid lg:grid-cols-[minmax(0,.9fr)_minmax(520px,1.1fr)]">
-    <section class="relative hidden overflow-hidden bg-slate-950 p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
-        <div class="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-indigo-500/30 blur-3xl"></div>
-        <div class="absolute -bottom-32 right-0 h-96 w-96 rounded-full bg-cyan-400/20 blur-3xl"></div>
+    <section class="relative hidden overflow-hidden border-r border-slate-800 bg-slate-950 p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
+        <div class="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-indigo-600/20 blur-3xl"></div>
+        <div class="absolute -bottom-32 right-0 h-96 w-96 rounded-full bg-indigo-400/10 blur-3xl"></div>
         <div class="relative">
             <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3">
-                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-xl font-black shadow-xl shadow-indigo-500/20">M</span>
-                <span><span class="block text-lg font-black">{{ config('app.name', 'MuebleDesk') }}</span><span class="block text-xs text-slate-400">Business operations platform</span></span>
+                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-xl font-black shadow-xl shadow-indigo-950/30">M</span>
+                <span><span class="block text-lg font-black text-white">{{ config('app.name', 'MuebleDesk') }}</span><span class="block text-xs text-slate-400">Business operations platform</span></span>
             </a>
         </div>
         <div class="relative max-w-xl">
-            <span class="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-extrabold uppercase tracking-[.18em] text-indigo-200">One secure workspace</span>
-            <h1 class="mt-6 text-4xl font-black leading-tight tracking-tight xl:text-5xl">Run quotations, invoices, payments and e-Invoices without fragmented tools.</h1>
+            <span class="inline-flex rounded-full border border-indigo-400/20 bg-indigo-500/10 px-3 py-1 text-xs font-extrabold uppercase tracking-[.18em] text-indigo-200">One secure workspace</span>
+            <h1 class="mt-6 text-4xl font-black leading-tight tracking-tight text-white xl:text-5xl">Run quotations, invoices, payments and e-Invoices without fragmented tools.</h1>
             <p class="mt-5 text-base leading-7 text-slate-300">MuebleDesk gives each company an isolated workspace for clients, recurring billing, expenses, reporting, Malaysian MyInvois workflows and team access.</p>
             <div class="mt-8 grid gap-3 sm:grid-cols-2">
                 @foreach ([
@@ -39,8 +41,8 @@
                     ['Complete billing flow', 'Quotation to invoice, payment and receipt.'],
                     ['Malaysia ready', 'MyInvois e-Invoice submission and tracking.'],
                 ] as [$title, $text])
-                    <div class="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-                        <p class="text-sm font-extrabold">{{ $title }}</p>
+                    <div class="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4 backdrop-blur">
+                        <p class="text-sm font-extrabold text-white">{{ $title }}</p>
                         <p class="mt-1 text-xs leading-5 text-slate-400">{{ $text }}</p>
                     </div>
                 @endforeach
@@ -49,19 +51,20 @@
         <p class="relative text-xs text-slate-500">Secure SaaS invoicing and business operations by Mueble Group.</p>
     </section>
 
-    <section class="flex min-h-screen items-center justify-center px-4 py-8 sm:px-8 lg:px-10 xl:px-16">
-        <div class="w-full max-w-2xl">
+    <section class="relative flex min-h-screen items-center justify-center bg-white px-4 py-8 transition-colors duration-200 dark:bg-slate-950 sm:px-8 lg:px-10 xl:px-16">
+        <div class="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_top,rgba(79,70,229,.08),transparent_65%)] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,.10),transparent_65%)]"></div>
+        <div class="relative w-full max-w-2xl">
             <div class="mb-7 flex items-center justify-between lg:hidden">
-                <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3">
-                    <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-lg font-black text-white dark:bg-white dark:text-slate-950">M</span>
+                <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3 text-slate-950 dark:text-white">
+                    <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-lg font-black text-white shadow-lg shadow-indigo-600/20">M</span>
                     <span class="font-black">{{ config('app.name', 'MuebleDesk') }}</span>
                 </a>
-                <a href="{{ route('marketing.home') }}" class="text-sm font-bold text-slate-500 hover:text-indigo-600">Back to website</a>
+                <a href="{{ route('marketing.home') }}" class="text-sm font-bold text-slate-500 transition hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300">Back to website</a>
             </div>
-            <div class="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-2xl shadow-slate-950/10 backdrop-blur-xl sm:p-8 dark:border-slate-800 dark:bg-slate-900/90">
+            <div class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/5 sm:p-8 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20">
                 {{ $slot }}
             </div>
-            <p class="mt-6 text-center text-xs leading-5 text-slate-500">By continuing, you agree to use MuebleDesk responsibly and keep your account credentials secure.</p>
+            <p class="mt-6 text-center text-xs leading-5 text-slate-500 dark:text-slate-400">By continuing, you agree to use MuebleDesk responsibly and keep your account credentials secure.</p>
         </div>
     </section>
 </main>
