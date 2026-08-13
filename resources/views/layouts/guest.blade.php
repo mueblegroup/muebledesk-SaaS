@@ -1,14 +1,9 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-force-theme="light">
 <head>
     <script>
-        (() => {
-            const theme = localStorage.getItem('muebledesk-theme') || 'system';
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const dark = theme === 'dark' || (theme === 'system' && prefersDark);
-            document.documentElement.classList.toggle('dark', dark);
-            document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-        })();
+        document.documentElement.classList.remove('dark');
+        document.documentElement.style.colorScheme = 'light';
     </script>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -19,7 +14,7 @@
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="min-h-screen bg-slate-50 font-sans text-slate-950 antialiased transition-colors duration-200 dark:bg-slate-950 dark:text-white">
+<body class="min-h-screen bg-slate-50 font-sans text-slate-950 antialiased">
 <main class="min-h-screen lg:grid lg:grid-cols-[minmax(0,.9fr)_minmax(520px,1.1fr)]">
     <section class="relative hidden overflow-hidden border-r border-slate-800 bg-slate-950 p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
         <div class="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-indigo-600/20 blur-3xl"></div>
@@ -51,20 +46,20 @@
         <p class="relative text-xs text-slate-500">Secure SaaS invoicing and business operations by Mueble Group.</p>
     </section>
 
-    <section class="relative flex min-h-screen items-center justify-center bg-white px-4 py-8 transition-colors duration-200 dark:bg-slate-950 sm:px-8 lg:px-10 xl:px-16">
-        <div class="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_top,rgba(79,70,229,.08),transparent_65%)] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,.10),transparent_65%)]"></div>
+    <section class="relative flex min-h-screen items-center justify-center bg-white px-4 py-8 sm:px-8 lg:px-10 xl:px-16">
+        <div class="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_top,rgba(79,70,229,.08),transparent_65%)]"></div>
         <div class="relative w-full max-w-2xl">
             <div class="mb-7 flex items-center justify-between lg:hidden">
-                <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3 text-slate-950 dark:text-white">
+                <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3 text-slate-950">
                     <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-lg font-black text-white shadow-lg shadow-indigo-600/20">M</span>
                     <span class="font-black">{{ config('app.name', 'MuebleDesk') }}</span>
                 </a>
-                <a href="{{ route('marketing.home') }}" class="text-sm font-bold text-slate-500 transition hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300">Back to website</a>
+                <a href="{{ route('marketing.home') }}" class="text-sm font-bold text-slate-500 transition hover:text-indigo-600">Back to website</a>
             </div>
-            <div class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/5 sm:p-8 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20">
+            <div class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/5 sm:p-8">
                 {{ $slot }}
             </div>
-            <p class="mt-6 text-center text-xs leading-5 text-slate-500 dark:text-slate-400">By continuing, you agree to use MuebleDesk responsibly and keep your account credentials secure.</p>
+            <p class="mt-6 text-center text-xs leading-5 text-slate-500">By continuing, you agree to use MuebleDesk responsibly and keep your account credentials secure.</p>
         </div>
     </section>
 </main>
