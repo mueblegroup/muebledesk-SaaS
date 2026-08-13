@@ -2,9 +2,10 @@ const STORAGE_KEY = 'muebledesk-theme';
 const media = window.matchMedia('(prefers-color-scheme: dark)');
 
 const normalizeTheme = (theme) => ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
+const forcedTheme = document.documentElement.dataset.forceTheme;
 
 const applyTheme = (theme) => {
-    const selectedTheme = normalizeTheme(theme);
+    const selectedTheme = forcedTheme === 'light' ? 'light' : normalizeTheme(theme);
     const shouldUseDark = selectedTheme === 'dark' || (selectedTheme === 'system' && media.matches);
 
     document.documentElement.classList.toggle('dark', shouldUseDark);
@@ -35,7 +36,7 @@ window.muebleTheme = {
 applyTheme(getStoredTheme());
 
 media.addEventListener('change', () => {
-    if (getStoredTheme() === 'system') {
+    if (forcedTheme !== 'light' && getStoredTheme() === 'system') {
         applyTheme('system');
         window.dispatchEvent(new CustomEvent('mueble-theme-changed', { detail: 'system' }));
     }
