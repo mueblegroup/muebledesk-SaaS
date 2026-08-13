@@ -9,10 +9,9 @@
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
                 <h3 class="section-title">Admin Settings</h3>
-                <p class="section-subtitle">Configure company details, invoices, payment gateways, email defaults, and system behaviour.</p>
+                <p class="section-subtitle">Configure company details, invoices, Stripe payments, email defaults, and system behaviour.</p>
             </div>
             <div class="space-y-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                <div>HitPay webhook: <span class="font-semibold text-slate-950 dark:text-white">{{ $hitpayWebhookUrl ?? $webhookUrl }}</span></div>
                 <div>Stripe webhook: <span class="font-semibold text-slate-950 dark:text-white">{{ $stripeWebhookUrl ?? route('stripe.webhook') }}</span></div>
             </div>
         </div>
@@ -54,13 +53,16 @@
             @csrf
             @method('PUT')
 
+            {{-- Stripe is the only active payment gateway. Keep this explicit so legacy tenant settings cannot select HitPay. --}}
+            <input type="hidden" name="payment_gateway" value="stripe">
+
             {{-- Preserve legacy supplier-profile keys here; they are edited only from the dedicated e-Invoice setup page. --}}
             @foreach (($sections['myinvois']['fields'] ?? []) as $key => $field)
                 <input type="hidden" name="{{ $key }}" value="{{ $settings[$key] ?? ($field['default'] ?? '') }}">
             @endforeach
 
             @foreach ($sections as $sectionKey => $section)
-                @continue($sectionKey === 'myinvois')
+                @continue(in_array($sectionKey, ['myinvois', 'payments', 'hitpay'], true))
                 <section class="space-y-5 border-t border-slate-200 pt-8 dark:border-slate-800">
                     <div>
                         <h4 class="text-lg font-extrabold text-slate-950 dark:text-white">{{ $section['title'] }}</h4>
@@ -108,12 +110,6 @@
 
                                 @if (! empty($field['help']))
                                     <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">{{ $field['help'] }}</p>
-                                @endif
-
-                                @if ($key === 'hitpay_webhook_url')
-                                    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                        Set this in HitPay dashboard. Default route: <span class="font-semibold">{{ $hitpayWebhookUrl ?? $webhookUrl }}</span>
-                                    </p>
                                 @endif
 
                                 @if ($key === 'stripe_webhook_url')
