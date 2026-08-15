@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class InvoiceApiController extends BaseApiController
 {
@@ -41,6 +42,46 @@ class InvoiceApiController extends BaseApiController
         $invoices = $query->latest()->paginate(min((int) $request->query('per_page', 25), 100));
 
         return $this->ok($invoices->items(), $this->paginationMeta($invoices));
+    }
+
+    public function checkDuplicate(Request $request)
+    {
+        $validated = $request->validate([
+            'invoice_number' => ['nullable', 'string', 'max:255'],
+            'client_id' => ['nullable', 'integer'],
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'total_amount' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $hasInvoiceNumber = filled($validated['invoice_number'] ?? null);
+        $hasCompositeKey = filled($validated['date'] ?? null) && array_key_exists('total_amount', $validated);
+
+        if (! $hasInvoiceNumber && ! $hasCompositeKey) {
+            throw ValidationException::withMessages([
+                'duplicate_check' => 'Provide invoice_number, or provide date and total_amount. client_id may also be supplied to narrow the match.',
+            ]);
+        }
+
+        $query = Invoice::query()
+            ->select(['id', 'invoice_number', 'client_id', 'date', 'total_amount', 'status']);
+
+        if ($hasInvoiceNumber) {
+            $query->where('invoice_number', trim($validated['invoice_number']));
+        } else {
+            $query->where('date', $validated['date'])
+                ->where('total_amount', round((float) $validated['total_amount'], 2));
+
+            if (! empty($validated['client_id'])) {
+                $query->where('client_id', $validated['client_id']);
+            }
+        }
+
+        $invoice = $query->first();
+
+        return $this->ok([
+            'duplicate' => $invoice !== null,
+            'invoice' => $invoice,
+        ]);
     }
 
     public function show(Invoice $invoice)
