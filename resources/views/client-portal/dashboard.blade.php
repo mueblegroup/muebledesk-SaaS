@@ -48,7 +48,7 @@
         </section>
 
         <section>
-            <div class="mb-5"><h2 class="text-2xl font-black tracking-tight text-slate-950">Your company</h2><p class="mt-1 text-sm text-slate-500">Open the workspace or manage its subscription and role allowances.</p></div>
+            <div class="mb-5"><h2 class="text-2xl font-black tracking-tight text-slate-950">Your company</h2><p class="mt-1 text-sm text-slate-500">Open the workspace, manage its subscription, or set the local timezone used for recurring invoices.</p></div>
             <div class="grid gap-6 xl:grid-cols-2">
                 @foreach ($companies as $company)
                     @php
@@ -77,6 +77,23 @@
                                 <div class="rounded-2xl bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Clients</p><p class="mt-2 text-sm font-extrabold">{{ $clientUsed }} / {{ $formatLimit($plan?->client_limit) }}</p></div>
                             </div>
                             <div class="mt-3 rounded-2xl border border-slate-100 px-4 py-3 text-xs text-slate-500">Your access role: <span class="font-extrabold capitalize text-slate-700">{{ $company->pivot->role ?? 'member' }}</span>@if ($subscription?->ends_at)<span class="mx-2">·</span>Active until {{ $subscription->ends_at->format('d M Y') }}@endif</div>
+
+                            <form method="POST" action="{{ route('companies.timezone.update', $company) }}" class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                @csrf
+                                @method('PUT')
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                                    <div class="min-w-0 flex-1">
+                                        <label for="timezone-{{ $company->id }}" class="mb-2 block text-xs font-extrabold uppercase tracking-wide text-slate-500">Company timezone</label>
+                                        <select id="timezone-{{ $company->id }}" name="timezone" class="w-full rounded-xl border-slate-300 bg-white text-sm text-slate-800 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                            @foreach ($timezones as $timezone)
+                                                <option value="{{ $timezone }}" @selected(old('timezone', $company->timezone ?: 'UTC') === $timezone)>{{ $timezone }}</option>
+                                            @endforeach
+                                        </select>
+                                        <p class="mt-2 text-xs leading-5 text-slate-500">Recurring invoices are generated according to this company’s local calendar date. Daylight-saving changes are handled automatically.</p>
+                                    </div>
+                                    <button type="submit" class="shrink-0 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-extrabold text-white transition hover:bg-indigo-500">Save timezone</button>
+                                </div>
+                            </form>
                         </div>
                         <div class="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/80 p-5 sm:flex-row">
                             <form method="POST" action="{{ route('companies.switch', $company) }}" class="flex-1">@csrf<button class="w-full rounded-2xl bg-slate-950 px-5 py-3 text-sm font-extrabold text-white transition group-hover:bg-indigo-600">Open workspace</button></form>
