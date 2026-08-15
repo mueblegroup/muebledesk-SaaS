@@ -64,6 +64,7 @@ Route::middleware(['auth', 'verified', '2fa'])->group(function () {
     Route::get('/companies/create', [CompanyOnboardingController::class, 'create'])->name('companies.create');
     Route::post('/companies', [CompanyOnboardingController::class, 'store'])->name('companies.store');
     Route::post('/companies/{company}/switch', [ClientPortalController::class, 'switch'])->name('companies.switch');
+    Route::put('/companies/{company}/timezone', [ClientPortalController::class, 'updateTimezone'])->name('companies.timezone.update');
 
     Route::get('/client-portal/companies/{company}/billing', [ClientPortalBillingController::class, 'index'])->name('client-portal.billing.index');
     Route::post('/client-portal/companies/{company}/plans/{plan}/checkout', [ClientPortalBillingController::class, 'checkout'])->name('client-portal.billing.checkout');
@@ -183,7 +184,7 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
 
     Route::get('/recurring-invoices/export', [RecurringInvoiceController::class, 'export'])->name('recurring-invoices.export');
     Route::post('/recurring-invoices/bulk-delete', [RecurringInvoiceController::class, 'bulkDestroy'])->name('recurring-invoices.bulk_destroy');
-    Route::get('/recurring-invoices/create-from-invoice/{invoice}', [RecurringInvoiceController::class, 'createFromInvoice'])->name('recurring-invoices.create-from-invoice');
+    Route::get('/recurring-invoices/create-from-invoice/{quotation}', [RecurringInvoiceController::class, 'createFromInvoice'])->name('recurring-invoices.create-from-invoice');
     Route::post('/recurring-invoices/create-from-invoice/{invoice}', [RecurringInvoiceController::class, 'storeFromInvoice'])->name('recurring-invoices.store-from-invoice');
     Route::post('/recurring-invoices/{recurringInvoice}/toggle-active', [RecurringInvoiceController::class, 'toggleActive'])->name('recurring-invoices.toggle-active');
     Route::resource('recurring-invoices', RecurringInvoiceController::class);
