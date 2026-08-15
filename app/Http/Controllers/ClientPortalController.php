@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use DateTimeZone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -51,6 +52,7 @@ class ClientPortalController extends Controller
             'currentCompany' => $currentCompany,
             'rootDomain' => config('saas.root_domain'),
             'scheme' => config('saas.scheme', 'https'),
+            'timezones' => DateTimeZone::listIdentifiers(),
         ]);
     }
 
@@ -71,5 +73,25 @@ class ClientPortalController extends Controller
             $company->slug,
             config('saas.root_domain')
         ));
+    }
+
+    public function updateTimezone(Request $request, Company $company): RedirectResponse
+    {
+        $canManage = $request->user()->companies()
+            ->whereKey($company->getKey())
+            ->wherePivotIn('role', ['owner', 'admin'])
+            ->exists();
+
+        abort_unless($canManage, 403);
+
+        $validated = $request->validate([
+            'timezone' => ['required', 'timezone'],
+        ]);
+
+        $company->update([
+            'timezone' => $validated['timezone'],
+        ]);
+
+        return back()->with('success', 'Company timezone updated successfully. Recurring invoices will follow this timezone.');
     }
 }
