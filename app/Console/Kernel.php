@@ -11,7 +11,10 @@ class Kernel extends ConsoleKernel
 {
     protected function schedule(Schedule $schedule): void
     {
-        $schedule->command(GenerateRecurringInvoices::class)->dailyAt('01:00')->withoutOverlapping();
+        // Run hourly so each tenant can be evaluated shortly after midnight in
+        // its own configured timezone. The command itself performs the final
+        // per-company local-date check and remains idempotent via next_invoice_date.
+        $schedule->command(GenerateRecurringInvoices::class)->hourly()->withoutOverlapping();
         $schedule->command(ProcessCompanySubscriptionRenewals::class)->hourly()->withoutOverlapping();
     }
 
