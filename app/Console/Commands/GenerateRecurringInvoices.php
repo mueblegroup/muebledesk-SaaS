@@ -17,19 +17,24 @@ use Illuminate\Support\Facades\Log;
 class GenerateRecurringInvoices extends Command
 {
     protected $signature = 'invoices:generate-recurring {--date= : Generate invoices due up to this date, format YYYY-MM-DD} {--dry-run : Show what would be generated without creating invoices}';
-    protected $description = 'Generate actual invoices from active recurring invoice templates that are due.';
+    protected $description = 'Generate actual invoices from active recurring invoice templates that are due in each company timezone.';
 
     public function handle(DocumentNumberGenerator $numberGenerator, ActivityLogger $activityLogger, PaymentGatewayService $paymentGateway): int
     {
-        $runDate = $this->option('date') ? Carbon::parse($this->option('date'))->startOfDay() : Carbon::today();
+        $forcedDate = $this->option('date') ? Carbon::parse($this->option('date'))->toDateString() : null;
         $dryRun = (bool) $this->option('dry-run');
         $generatedCount = 0;
         $skippedCount = 0;
 
+        // A tenant can be up to one calendar day ahead of UTC. Pull a narrow
+        // candidate set, then evaluate the due date again in that company's
+        // own IANA timezone before generating anything.
+        $candidateDate = $forcedDate ?: Carbon::now('UTC')->addDay()->toDateString();
+
         $due = RecurringInvoice::withoutGlobalScopes()
             ->whereNotNull('company_id')
             ->where('is_active', true)
-            ->whereDate('next_invoice_date', '<=', $runDate)
+            ->whereDate('next_invoice_date', '<=', $candidateDate)
             ->orderBy('company_id')
             ->orderBy('next_invoice_date')
             ->get(['id', 'company_id']);
@@ -47,12 +52,17 @@ class GenerateRecurringInvoices extends Command
                 continue;
             }
 
+            $companyTimezone = $company->timezone ?: 'UTC';
+            $runDate = $forcedDate
+                ? Carbon::parse($forcedDate, $companyTimezone)->startOfDay()
+                : Carbon::now($companyTimezone)->startOfDay();
+
             app()->instance(Company::class, $company);
             app()->instance('currentCompany', $company);
 
             try {
-                DB::transaction(function () use ($dueTemplate, $runDate, $dryRun, $numberGenerator, $activityLogger, $paymentGateway, &$generatedCount, &$skippedCount) {
-                    $recurring = RecurringInvoice::query()->with(['client', 'items'])
+                DB::transaction(function () use ($dueTemplate, $runDate, $companyTimezone, $dryRun, $numberGenerator, $activityLogger, $paymentGateway, &$generatedCount, &$skippedCount) {
+                    $recurring = RecurringInvoice::query()->with(['client', 'items', 'company'])
                         ->whereKey($dueTemplate->id)->lockForUpdate()->first();
 
                     if (! $recurring || ! $recurring->is_active || $recurring->next_invoice_date?->greaterThan($runDate)) {
@@ -73,7 +83,7 @@ class GenerateRecurringInvoices extends Command
                     $dueDate = $invoiceDate->copy()->addDays(max(0, $dueDays));
 
                     if ($dryRun) {
-                        $this->line('Would generate invoice for '.$recurring->client?->name.' in '.$recurring->company->name);
+                        $this->line('Would generate invoice for '.$recurring->client?->name.' in '.$recurring->company->name.' ('.$companyTimezone.', local date '.$runDate->toDateString().')');
                         return;
                     }
 
@@ -122,7 +132,9 @@ class GenerateRecurringInvoices extends Command
                         'recurring_invoice_id' => $recurring->id,
                         'next_invoice_date' => $nextDate->toDateString(),
                         'frequency' => $recurring->frequencyLabel(),
-                        'payment_gateway' => Setting::get('payment_gateway', 'hitpay'),
+                        'company_timezone' => $companyTimezone,
+                        'local_run_date' => $runDate->toDateString(),
+                        'payment_gateway' => 'stripe',
                     ]);
 
                     $generatedCount++;
@@ -132,6 +144,7 @@ class GenerateRecurringInvoices extends Command
                 Log::error('Recurring Invoice Generation Error', [
                     'recurring_invoice_id' => $dueTemplate->id,
                     'company_id' => $dueTemplate->company_id,
+                    'company_timezone' => $companyTimezone,
                     'message' => $e->getMessage(),
                     'exception' => $e,
                 ]);
