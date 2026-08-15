@@ -184,7 +184,7 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
 
     Route::get('/recurring-invoices/export', [RecurringInvoiceController::class, 'export'])->name('recurring-invoices.export');
     Route::post('/recurring-invoices/bulk-delete', [RecurringInvoiceController::class, 'bulkDestroy'])->name('recurring-invoices.bulk_destroy');
-    Route::get('/recurring-invoices/create-from-invoice/{quotation}', [RecurringInvoiceController::class, 'createFromInvoice'])->name('recurring-invoices.create-from-invoice');
+    Route::get('/recurring-invoices/create-from-invoice/{invoice}', [RecurringInvoiceController::class, 'createFromInvoice'])->name('recurring-invoices.create-from-invoice');
     Route::post('/recurring-invoices/create-from-invoice/{invoice}', [RecurringInvoiceController::class, 'storeFromInvoice'])->name('recurring-invoices.store-from-invoice');
     Route::post('/recurring-invoices/{recurringInvoice}/toggle-active', [RecurringInvoiceController::class, 'toggleActive'])->name('recurring-invoices.toggle-active');
     Route::resource('recurring-invoices', RecurringInvoiceController::class);
