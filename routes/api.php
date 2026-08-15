@@ -19,6 +19,7 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware('api.key:invoices.read')->group(function () {
         Route::get('/invoices', [InvoiceApiController::class, 'index']);
+        Route::get('/invoices/check-duplicate', [InvoiceApiController::class, 'checkDuplicate']);
         Route::get('/invoices/{invoice}', [InvoiceApiController::class, 'show']);
     });
     Route::post('/invoices', [InvoiceApiController::class, 'store'])->middleware('api.key:invoices.write');
