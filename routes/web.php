@@ -172,15 +172,17 @@ Route::middleware(['auth', '2fa', 'role:admin,employee'])->group(function () {
     Route::put('/payments/{payment}', [PaymentController::class, 'update'])->name('payments.update');
     Route::delete('/payments/{payment}', [PaymentController::class, 'destroy'])->name('payments.destroy');
 
-    Route::get('/expenses/export', [ExpenseController::class, 'export'])->name('expenses.export');
-    Route::get('/expenses/export/pdf', [ExpenseController::class, 'export'])->defaults('format', 'pdf')->name('expenses.export.pdf');
-    Route::post('/expenses/bulk-delete', [ExpenseController::class, 'bulkDestroy'])->name('expenses.bulk_destroy');
-    Route::resource('expenses', ExpenseController::class);
-
+    // Register named Profit & Loss routes before the expenses resource so
+    // /expenses/profit-loss is not captured by /expenses/{expense}.
     Route::get('/reports/profit-loss', [ExpenseController::class, 'profitLoss'])->name('reports.profit_loss');
     Route::get('/reports/profit-loss/export', [ExpenseController::class, 'profitLossExport'])->name('reports.profit_loss.export');
     Route::get('/reports/profit-loss/export/pdf', [ExpenseController::class, 'profitLossExport'])->defaults('format', 'pdf')->name('reports.profit_loss.export.pdf');
     Route::redirect('/expenses/profit-loss', '/reports/profit-loss')->name('expenses.profit_loss');
+
+    Route::get('/expenses/export', [ExpenseController::class, 'export'])->name('expenses.export');
+    Route::get('/expenses/export/pdf', [ExpenseController::class, 'export'])->defaults('format', 'pdf')->name('expenses.export.pdf');
+    Route::post('/expenses/bulk-delete', [ExpenseController::class, 'bulkDestroy'])->name('expenses.bulk_destroy');
+    Route::resource('expenses', ExpenseController::class);
 
     Route::get('/recurring-invoices/export', [RecurringInvoiceController::class, 'export'])->name('recurring-invoices.export');
     Route::post('/recurring-invoices/bulk-delete', [RecurringInvoiceController::class, 'bulkDestroy'])->name('recurring-invoices.bulk_destroy');
