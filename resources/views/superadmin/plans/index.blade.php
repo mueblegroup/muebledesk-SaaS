@@ -15,6 +15,7 @@
 
             <div>
                 <x-input-label value="Feature entitlements"/>
+                <p class="mt-1 text-xs text-slate-500">These permissions are enforced by the server. Unchecked features are not available to companies on this plan.</p>
                 <div class="mt-2 grid gap-2 sm:grid-cols-2">
                     @foreach($featureOptions as $key => $label)
                         <label class="flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold dark:border-slate-800"><input type="checkbox" name="feature_keys[]" value="{{ $key }}" @checked(in_array($key, old('feature_keys', array_keys($featureOptions)), true))> {{ $label }}</label>
@@ -30,8 +31,10 @@
 
         <div class="space-y-4">
             @forelse ($plans as $plan)
-                @php($knownFeatures = collect($plan->features ?? [])->intersect(array_keys($featureOptions))->all())
-                @php($legacyPlan = empty($knownFeatures))
+                @php($planFeatures = collect($plan->features ?? []))
+                @php($knownFeatures = $planFeatures->intersect(array_keys($featureOptions))->all())
+                @php($entitlementsConfigured = $planFeatures->contains(\App\Models\PlatformSubscriptionPlan::FEATURE_CONFIGURATION_MARKER))
+                @php($legacyPlan = !$entitlementsConfigured && empty($knownFeatures))
                 <article class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                     <form method="POST" action="{{ route('superadmin.plans.update', $plan) }}" class="space-y-4">@csrf @method('PUT')
                         <div class="flex items-start justify-between gap-4"><div><h2 class="text-xl font-black">{{ $plan->name }}</h2><p class="text-sm text-slate-500">{{ $plan->subscriptions()->count() }} subscription(s)</p></div><span class="rounded-full px-3 py-1 text-xs font-bold {{ $plan->is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">{{ $plan->is_active ? 'Active' : 'Hidden' }}</span></div>
@@ -45,7 +48,7 @@
                                 <label class="flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold dark:border-slate-800"><input type="checkbox" name="feature_keys[]" value="{{ $key }}" @checked($legacyPlan || in_array($key, $knownFeatures, true))> {{ $label }}</label>
                             @endforeach
                         </div>
-                        <textarea name="features_text" rows="2" class="block w-full rounded-2xl border-slate-300 dark:border-slate-700 dark:bg-slate-950">{{ collect($plan->features ?? [])->reject(fn($feature) => array_key_exists($feature, $featureOptions))->implode("\n") }}</textarea>
+                        <textarea name="features_text" rows="2" class="block w-full rounded-2xl border-slate-300 dark:border-slate-700 dark:bg-slate-950">{{ $planFeatures->reject(fn($feature) => array_key_exists($feature, $featureOptions) || $feature === \App\Models\PlatformSubscriptionPlan::FEATURE_CONFIGURATION_MARKER)->implode("\n") }}</textarea>
                         <input type="hidden" name="sort_order" value="{{ $plan->sort_order }}">
                         <div class="flex flex-wrap gap-5"><label class="flex items-center gap-2 text-sm font-bold"><input type="checkbox" name="auto_renew_default" value="1" @checked($plan->auto_renew_default)> Auto-renew default</label><label class="flex items-center gap-2 text-sm font-bold"><input type="checkbox" name="is_active" value="1" @checked($plan->is_active)> Available</label></div>
                         <button class="btn-primary" type="submit">Save plan</button>
