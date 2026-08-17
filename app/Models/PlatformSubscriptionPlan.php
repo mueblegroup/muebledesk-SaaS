@@ -11,6 +11,8 @@ class PlatformSubscriptionPlan extends Model
 {
     use HasFactory;
 
+    public const FEATURE_CONFIGURATION_MARKER = '__entitlements_configured';
+
     public const FEATURE_OPTIONS = [
         'einvoice' => 'MyInvois e-Invoice',
         'expenses' => 'Expenses',
@@ -68,9 +70,18 @@ class PlatformSubscriptionPlan extends Model
     public function hasFeature(string $feature): bool
     {
         $features = collect($this->features ?? [])->map(fn ($value) => (string) $value);
+        $configured = $features->contains(self::FEATURE_CONFIGURATION_MARKER);
         $known = $features->intersect(array_keys(self::FEATURE_OPTIONS));
 
-        // Preserve existing subscriptions created before structured feature keys existed.
+        // Plans explicitly saved by the current plan editor are authoritative,
+        // including the valid case where zero structured features are selected.
+        if ($configured) {
+            return $features->contains($feature);
+        }
+
+        // Preserve subscriptions created before structured entitlement keys existed.
+        // As soon as a legacy plan is saved, the configuration marker is added and
+        // its selected checkboxes become authoritative.
         if ($known->isEmpty()) {
             return true;
         }
