@@ -10,6 +10,7 @@
 <body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
 @php($navigation=[
  ['label'=>'Overview','route'=>'superadmin.dashboard','active'=>'superadmin.dashboard','icon'=>'▦'],
+ ['label'=>'Companies','route'=>'superadmin.companies.index','active'=>'superadmin.companies.*','icon'=>'▣'],
  ['label'=>'Users','route'=>'superadmin.users.index','active'=>'superadmin.users.*','icon'=>'◎'],
  ['label'=>'Plans','route'=>'superadmin.plans.index','active'=>'superadmin.plans.*','icon'=>'◇'],
  ['label'=>'System Guide','route'=>'superadmin.system-guide.index','active'=>'superadmin.system-guide.*','icon'=>'▤'],
