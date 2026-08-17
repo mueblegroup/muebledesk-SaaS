@@ -28,6 +28,14 @@ class RoleMiddleware
 
         $effectiveRole = auth()->user()->workspaceRole();
 
+        if ($effectiveRole === 'customer' && in_array('customer', $roles, true) && app()->bound('currentCompany')) {
+            $company = app('currentCompany');
+            $subscription = $company->subscription()->with('plan')->first();
+
+            abort_unless($subscription?->isActive() && $subscription->plan, 402, 'An active subscription is required.');
+            abort_unless($subscription->plan->hasFeature('customer_portal'), 403, 'The customer portal is not included in the current subscription plan.');
+        }
+
         if (in_array($effectiveRole, $roles, true)) {
             return $next($request);
         }
