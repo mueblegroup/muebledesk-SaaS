@@ -13,6 +13,10 @@ class PaymentGatewayService
     public function createPaymentLink(Invoice $invoice): ?string
     {
         try {
+            if (! $this->customGatewayAllowed()) {
+                return null;
+            }
+
             if (Setting::get('auto_generate_payment_link', '1') === '0') {
                 return null;
             }
@@ -35,6 +39,10 @@ class PaymentGatewayService
 
     public function createHitPayLink(Invoice $invoice): ?string
     {
+        if (! $this->customGatewayAllowed()) {
+            return null;
+        }
+
         if (Setting::get('hitpay_enabled', '1') === '0') {
             return null;
         }
@@ -97,6 +105,10 @@ class PaymentGatewayService
 
     public function createStripeCheckoutLink(Invoice $invoice): ?string
     {
+        if (! $this->customGatewayAllowed()) {
+            return null;
+        }
+
         if (Setting::get('stripe_enabled', '0') === '0') {
             return null;
         }
@@ -167,6 +179,20 @@ class PaymentGatewayService
 
             return null;
         }
+    }
+
+    private function customGatewayAllowed(): bool
+    {
+        if (! app()->bound('currentCompany')) {
+            return true;
+        }
+
+        $company = app('currentCompany');
+        $subscription = $company->subscription()->with('plan')->first();
+
+        return (bool) ($subscription?->isActive()
+            && $subscription->plan
+            && $subscription->plan->hasFeature('custom_payment_gateway'));
     }
 
     private function amountToPay(Invoice $invoice): float
