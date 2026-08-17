@@ -34,13 +34,27 @@
 
                 <form method="POST" action="{{ route('superadmin.companies.subscription.update', $company) }}" class="mt-5 space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
                     @csrf @method('PUT')
-                    <div><x-input-label for="plan_id" value="Subscription plan"/><select id="plan_id" name="plan_id" class="mt-1 block w-full rounded-2xl border-slate-300 dark:border-slate-700 dark:bg-slate-950" required>@foreach($plans as $plan)<option value="{{ $plan->id }}" @selected($company->subscription?->platform_subscription_plan_id === $plan->id)>{{ $plan->name }} · {{ $plan->currency }} {{ number_format($plan->price,2) }} / {{ $plan->durationLabel() }}</option>@endforeach</select></div>
+                    <div>
+                        <x-input-label for="plan_id" value="Subscription plan"/>
+                        <select id="plan_id" name="plan_id" class="mt-1 block w-full rounded-2xl border-slate-300 dark:border-slate-700 dark:bg-slate-950" required>
+                            @foreach($plans as $plan)
+                                <option value="{{ $plan->id }}" @selected($company->subscription?->platform_subscription_plan_id === $plan->id)>{{ $plan->name }} · {{ $plan->currency }} {{ number_format($plan->price,2) }} / {{ $plan->durationLabel() }}</option>
+                            @endforeach
+                        </select>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Changing the plan updates the company's permissions immediately while preserving the current subscription status and expiry date.</p>
+                    </div>
                     <label class="flex items-center gap-2 text-sm font-bold"><input type="hidden" name="auto_renew" value="0"><input type="checkbox" name="auto_renew" value="1" @checked($company->subscription?->auto_renew ?? true)> Auto-renew</label>
-                    <div class="grid grid-cols-2 gap-2">
-                        <button name="action" value="activate" class="btn-primary" type="submit">Activate</button>
-                        <button name="action" value="extend" class="btn-secondary" type="submit">Extend</button>
-                        <button name="action" value="disable" class="rounded-2xl border border-amber-300 px-4 py-2 text-sm font-bold text-amber-700" type="submit">Disable</button>
-                        <button name="action" value="expire" class="btn-danger" type="submit">Expire now</button>
+
+                    <button name="action" value="change_plan" class="btn-primary w-full" type="submit">Save / Change Plan</button>
+
+                    <div class="border-t border-slate-200 pt-3 dark:border-slate-800">
+                        <p class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Subscription actions</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button name="action" value="activate" class="btn-secondary" type="submit">Activate</button>
+                            <button name="action" value="extend" class="btn-secondary" type="submit">Extend</button>
+                            <button name="action" value="disable" class="rounded-2xl border border-amber-300 px-4 py-2 text-sm font-bold text-amber-700" type="submit">Disable</button>
+                            <button name="action" value="expire" class="btn-danger" type="submit">Expire now</button>
+                        </div>
                     </div>
                 </form>
             </section>
