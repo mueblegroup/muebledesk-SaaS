@@ -76,11 +76,13 @@ class SuperAdminPlanController extends Controller
         $displayFeatures = collect(preg_split('/\r\n|\r|\n/', $validated['features_text'] ?? ''))
             ->map(fn (string $feature) => trim($feature))
             ->filter()
-            ->reject(fn (string $feature) => array_key_exists($feature, PlatformSubscriptionPlan::FEATURE_OPTIONS));
+            ->reject(fn (string $feature) => array_key_exists($feature, PlatformSubscriptionPlan::FEATURE_OPTIONS))
+            ->reject(fn (string $feature) => $feature === PlatformSubscriptionPlan::FEATURE_CONFIGURATION_MARKER);
 
         $validated['currency'] = strtoupper($validated['currency']);
         $validated['features'] = collect($validated['feature_keys'] ?? [])
             ->merge($displayFeatures)
+            ->push(PlatformSubscriptionPlan::FEATURE_CONFIGURATION_MARKER)
             ->unique()
             ->values()
             ->all();
