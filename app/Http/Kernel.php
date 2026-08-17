@@ -23,6 +23,7 @@ class Kernel extends HttpKernel
             \Illuminate\Session\Middleware\StartSession::class,
             \App\Http\Middleware\ResolveCompanyTenant::class,
             \App\Http\Middleware\EnsureActiveCompanySubscription::class,
+            \App\Http\Middleware\EnsurePlanFeature::class,
             \App\Http\Middleware\ResolveWebhookCompany::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
