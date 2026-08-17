@@ -61,7 +61,16 @@ class SubscriptionRoleLimitObserver
         }
 
         $role = $user->role?->value ?? (string) $user->getRawOriginal('role');
-        $limit = $subscription->plan?->limitForRole($role);
+        $plan = $subscription->plan;
+        $limit = $plan?->limitForRole($role);
+
+        // The employee_limit remains the absolute ceiling. When the plan does not
+        // include the "multiple_employees" feature, at most one employee account is
+        // allowed even if an older/misconfigured numeric limit is higher.
+        if ($role === 'employee' && $plan && ! $plan->hasFeature('multiple_employees')) {
+            $limit = is_null($limit) ? 1 : min($limit, 1);
+        }
+
         if (is_null($limit)) {
             return;
         }
@@ -71,7 +80,11 @@ class SubscriptionRoleLimitObserver
             ->count();
 
         if ($count >= $limit) {
-            throw ValidationException::withMessages(['role' => "This plan allows a maximum of {$limit} {$role} account(s)."]);
+            $message = $role === 'employee' && $plan && ! $plan->hasFeature('multiple_employees')
+                ? 'This plan does not include multiple employee accounts.'
+                : "This plan allows a maximum of {$limit} {$role} account(s).";
+
+            throw ValidationException::withMessages(['role' => $message]);
         }
     }
 }
