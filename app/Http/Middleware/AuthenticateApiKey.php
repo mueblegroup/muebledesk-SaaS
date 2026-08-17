@@ -26,9 +26,18 @@ class AuthenticateApiKey
             return response()->json(['message' => 'Invalid, expired, revoked, or IP-restricted API key.'], 401);
         }
 
-        $company = Company::query()->find($apiKey->company_id);
+        $company = Company::with('subscription.plan')->find($apiKey->company_id);
         if (! $company) {
             return response()->json(['message' => 'The API key company no longer exists.'], 401);
+        }
+
+        $subscription = $company->subscription;
+        if (! $subscription?->isActive() || ! $subscription->plan) {
+            return response()->json(['message' => 'An active subscription is required.'], 402);
+        }
+
+        if (! $subscription->plan->hasFeature('api_access')) {
+            return response()->json(['message' => 'API access is not included in the current subscription plan.'], 403);
         }
 
         app()->instance(Company::class, $company);
