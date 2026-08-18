@@ -110,15 +110,9 @@ class StripeWebhookController extends Controller
                 throw new \RuntimeException('Invoice not found for failed Stripe payment: '.$invoiceId);
             }
 
-            // Do not create a Payment or receipt for a failed attempt. Keep the
-            // payment link intact so the customer can retry. A partially paid
-            // invoice remains partially paid; only an unpaid pending invoice is
-            // moved to the explicit failed-payment state.
-            if ($invoice->status === 'pending') {
-                $invoice->status = 'failed_payment';
-                $invoice->save();
-            }
-
+            // A failed attempt is not an accounting payment state. Keep the invoice
+            // pending/overdue/partially paid and preserve its payment link so the
+            // customer can retry. No Payment or PaymentReceipt record is created.
             $failureMessage = $object['last_payment_error']['message']
                 ?? $object['failure_message']
                 ?? 'Stripe payment attempt failed.';
