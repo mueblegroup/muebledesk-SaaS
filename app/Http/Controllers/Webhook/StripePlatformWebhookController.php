@@ -54,14 +54,19 @@ class StripePlatformWebhookController extends Controller
                 return response('ok');
             }
 
-            if ($existing->status === 'processing') {
+            $processingIsFresh = $existing->status === 'processing'
+                && $existing->updated_at
+                && $existing->updated_at->greaterThan(now()->subMinutes(5));
+
+            if ($processingIsFresh) {
                 // A concurrent delivery may still be working. Return a non-2xx
                 // response so Stripe retries instead of considering it complete.
                 return response('Webhook already processing', 409);
             }
 
-            // Failed events are deliberately retriable. Stripe will deliver the same
-            // event id again after a 5xx response, so reset the ledger and process it.
+            // Failed events and stale processing locks are deliberately retriable.
+            // This also recovers when a PHP worker dies after creating the ledger
+            // but before it can mark the event processed or failed.
             $existing->update([
                 'status' => 'processing',
                 'processed_at' => null,
