@@ -150,12 +150,26 @@ class HitPayWebhookController extends Controller
                 break;
 
             case 'failed':
-                DB::transaction(function () use ($invoiceId) {
+                DB::transaction(function () use ($invoiceId, $payload, $activityLogger) {
                     $invoice = Invoice::query()->whereKey($invoiceId)->lockForUpdate()->first();
-                    if ($invoice && $invoice->status === 'pending') {
-                        $invoice->status = 'failed_payment';
-                        $invoice->save();
+                    if (! $invoice) {
+                        throw new \RuntimeException('HitPay webhook invoice not found for failed payment: '.$invoiceId);
                     }
+
+                    // Failed gateway attempts do not change the invoice's accounting
+                    // state and do not create a Payment/receipt. The existing payment
+                    // link remains available so the customer can retry.
+                    $activityLogger->log(
+                        'payment.failed',
+                        'HitPay payment failed for invoice '.$invoice->invoice_number,
+                        $invoice,
+                        [],
+                        [
+                            'gateway' => 'hitpay',
+                            'payment_id' => $payload['id'] ?? null,
+                            'failure_message' => $payload['message'] ?? $payload['failure_message'] ?? 'HitPay payment attempt failed.',
+                        ]
+                    );
                 });
                 break;
 
