@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 class ProcessCompanySubscriptionRenewals extends Command
 {
     protected $signature = 'subscriptions:process-renewals';
-    protected $description = 'Expire ended subscriptions and extend eligible manual auto-renew subscriptions.';
+    protected $description = 'Expire ended subscriptions while allowing only free manual plans to renew without a payment provider.';
 
     public function handle(): int
     {
@@ -33,7 +33,12 @@ class ProcessCompanySubscriptionRenewals extends Command
                         continue;
                     }
 
-                    if ($subscription->auto_renew && $subscription->plan) {
+                    // A paid plan without a payment-provider subscription must never
+                    // silently extend itself. Superadmins can still extend offline or
+                    // complimentary paid subscriptions explicitly from the company page.
+                    $isFreePlan = $subscription->plan && (float) $subscription->plan->price <= 0;
+
+                    if ($subscription->auto_renew && $isFreePlan) {
                         $subscription->update([
                             'status' => 'active',
                             'starts_at' => $subscription->expires_at,
@@ -42,9 +47,16 @@ class ProcessCompanySubscriptionRenewals extends Command
                             'renewal_failure_count' => 0,
                             'last_renewal_error' => null,
                         ]);
-                    } else {
-                        $subscription->update(['status' => 'expired']);
+                        continue;
                     }
+
+                    $subscription->update([
+                        'status' => 'expired',
+                        'last_renewal_attempt_at' => now(),
+                        'last_renewal_error' => $subscription->auto_renew && ! $isFreePlan
+                            ? 'Automatic renewal was not performed because this paid subscription has no payment-provider subscription.'
+                            : null,
+                    ]);
                 }
             });
 
