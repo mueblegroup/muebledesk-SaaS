@@ -40,6 +40,15 @@ class AuthenticateApiKey
             return response()->json(['message' => 'API access is not included in the current subscription plan.'], 403);
         }
 
+        if ($permission && ($requiredFeature = $this->featureForPermission($permission))) {
+            if (! $subscription->plan->hasFeature($requiredFeature)) {
+                return response()->json([
+                    'message' => 'This API operation is not included in the current subscription plan.',
+                    'required_feature' => $requiredFeature,
+                ], 403);
+            }
+        }
+
         app()->instance(Company::class, $company);
         app()->instance('currentCompany', $company);
         $request->attributes->set('currentCompany', $company);
@@ -59,5 +68,15 @@ class AuthenticateApiKey
         $key = $request->bearerToken() ?: $request->header('X-API-Key');
 
         return $key ? trim($key) : null;
+    }
+
+    private function featureForPermission(string $permission): ?string
+    {
+        return match (true) {
+            str_starts_with($permission, 'expenses.') => 'expenses',
+            $permission === 'reports.profit_loss' => 'profit_loss',
+            str_starts_with($permission, 'recurring_invoices.') => 'recurring_invoices',
+            default => null,
+        };
     }
 }
