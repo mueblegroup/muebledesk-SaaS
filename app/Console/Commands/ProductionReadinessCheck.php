@@ -37,6 +37,7 @@ class ProductionReadinessCheck extends Command
         $check(! config('app.debug'), 'APP_DEBUG is disabled.', 'APP_DEBUG must be false.');
         $check(str_starts_with((string) config('app.url'), 'https://'), 'APP_URL uses HTTPS.', 'APP_URL must use HTTPS.');
         $check(filled(config('app.key')), 'APP_KEY is configured.', 'APP_KEY is missing.');
+        $check(! File::exists(public_path('adminer.php')), 'No Adminer database console is exposed from the public web root.', 'Remove public/adminer.php before production deployment.');
 
         $check(config('queue.default') !== 'sync', 'Queue connection is asynchronous.', 'QUEUE_CONNECTION must not be sync in production.');
         $check(config('cache.default') !== 'array', 'Persistent cache is configured.', 'CACHE_STORE should be database, file, or Redis—not array.', false);
