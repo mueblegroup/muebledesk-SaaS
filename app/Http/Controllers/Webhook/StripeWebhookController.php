@@ -50,6 +50,7 @@ class StripeWebhookController extends Controller
         try {
             $response = match ($event['type']) {
                 'checkout.session.completed', 'checkout.session.async_payment_succeeded' => $this->handleCheckoutSession($event, $activityLogger),
+                'checkout.session.async_payment_failed', 'payment_intent.payment_failed' => $this->handleFailedPayment($event, $activityLogger),
                 'payment_intent.succeeded' => $this->handlePaymentIntent($event, $activityLogger),
                 default => tap(response()->json(['message' => 'Webhook ignored'], 200), fn () => $webhookEvent->markIgnored(['reason' => 'unhandled_event_type'])),
             };
@@ -90,6 +91,53 @@ class StripeWebhookController extends Controller
         $amount = $this->amountFromMinorUnits((int) ($intent['amount_received'] ?? $intent['amount'] ?? 0), (string) ($intent['currency'] ?? Setting::get('currency', 'MYR')));
 
         return $this->recordStripePayment($invoiceId, $transactionId, $reference, $amount, $activityLogger);
+    }
+
+    private function handleFailedPayment(array $event, ActivityLogger $activityLogger)
+    {
+        $object = $event['data']['object'] ?? [];
+        $invoiceId = $object['metadata']['invoice_id'] ?? null;
+
+        if (! $invoiceId) {
+            return response()->json(['message' => 'Failed payment has no invoice reference'], 200);
+        }
+
+        DB::transaction(function () use ($invoiceId, $object, $event, $activityLogger) {
+            /** @var Invoice|null $invoice */
+            $invoice = Invoice::query()->whereKey($invoiceId)->lockForUpdate()->first();
+
+            if (! $invoice) {
+                throw new \RuntimeException('Invoice not found for failed Stripe payment: '.$invoiceId);
+            }
+
+            // Do not create a Payment or receipt for a failed attempt. Keep the
+            // payment link intact so the customer can retry. A partially paid
+            // invoice remains partially paid; only an unpaid pending invoice is
+            // moved to the explicit failed-payment state.
+            if ($invoice->status === 'pending') {
+                $invoice->status = 'failed_payment';
+                $invoice->save();
+            }
+
+            $failureMessage = $object['last_payment_error']['message']
+                ?? $object['failure_message']
+                ?? 'Stripe payment attempt failed.';
+
+            $activityLogger->log(
+                'payment.failed',
+                'Stripe payment failed for invoice '.$invoice->invoice_number,
+                $invoice,
+                [],
+                [
+                    'gateway' => 'stripe',
+                    'event_type' => $event['type'] ?? null,
+                    'payment_intent_id' => $object['payment_intent'] ?? $object['id'] ?? null,
+                    'failure_message' => $failureMessage,
+                ]
+            );
+        });
+
+        return response()->json(['message' => 'Failed Stripe payment recorded'], 200);
     }
 
     private function recordStripePayment(?string $invoiceId, ?string $transactionId, ?string $reference, float $amount, ActivityLogger $activityLogger)
