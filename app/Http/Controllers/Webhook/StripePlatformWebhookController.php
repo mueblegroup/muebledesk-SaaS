@@ -46,11 +46,30 @@ class StripePlatformWebhookController extends Controller
                 ->where('event_id', $eventId)
                 ->first();
 
-            if ($existing) {
+            if (! $existing) {
+                throw $exception;
+            }
+
+            if ($existing->status === 'processed') {
                 return response('ok');
             }
 
-            throw $exception;
+            if ($existing->status === 'processing') {
+                // A concurrent delivery may still be working. Return a non-2xx
+                // response so Stripe retries instead of considering it complete.
+                return response('Webhook already processing', 409);
+            }
+
+            // Failed events are deliberately retriable. Stripe will deliver the same
+            // event id again after a 5xx response, so reset the ledger and process it.
+            $existing->update([
+                'status' => 'processing',
+                'processed_at' => null,
+                'error_message' => null,
+                'payload_hash' => hash('sha256', $payload),
+                'event_type' => $event['type'] ?? $existing->event_type,
+            ]);
+            $ledger = $existing;
         }
 
         try {
