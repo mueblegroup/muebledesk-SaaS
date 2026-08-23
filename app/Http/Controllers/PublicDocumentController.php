@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\PaymentReceipt;
 use App\Models\Quotation;
 use App\Models\Setting;
+use App\Services\DocumentNumberGenerator;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class PublicDocumentController extends Controller
@@ -36,13 +38,34 @@ class PublicDocumentController extends Controller
     {
         $this->bindCompany($payment->company);
         $payment->load('invoice.client', 'invoice.employee', 'recordedBy', 'receipt');
-        abort_unless($payment->receipt, 404, 'Payment receipt not found.');
+        $receipt = $this->ensureReceipt($payment);
 
         return Pdf::loadView('pdfs.payment-receipt', [
             'payment' => $payment,
-            'receipt' => $payment->receipt,
+            'receipt' => $receipt,
             'settings' => Setting::allKeyed(),
-        ])->stream('receipt_'.$payment->receipt->receipt_number.'.pdf');
+        ])->stream('receipt_'.$receipt->receipt_number.'.pdf');
+    }
+
+    private function ensureReceipt(Payment $payment): PaymentReceipt
+    {
+        return PaymentReceipt::firstOrCreate(
+            ['payment_id' => $payment->id],
+            [
+                'receipt_number' => app(DocumentNumberGenerator::class)->generate(
+                    new PaymentReceipt,
+                    'receipt_number',
+                    'receipt_prefix',
+                    'receipt_number_format',
+                    'REC',
+                    $payment->payment_date,
+                    (int) ($payment->recorded_by_employee_id ?? $payment->invoice?->employee_id ?? 0),
+                    'receipt_number'
+                ),
+                'date' => $payment->payment_date,
+                'amount' => $payment->amount,
+            ]
+        );
     }
 
     private function bindCompany($company): void
