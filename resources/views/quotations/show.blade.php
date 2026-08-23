@@ -5,6 +5,11 @@
         </h2>
     </x-slot>
 
+    @php
+        $shareUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute('shared.quotation', now()->addDays(30), ['quotation' => $quotation]);
+        $shareMessage = 'Quotation #'.($quotation->quote_number ?? $quotation->id).' from '.(app('currentCompany')->name ?? config('app.name')).'. Total: RM '.number_format((float) $quotation->total_amount, 2).'.';
+    @endphp
+
     <div class="space-y-6">
         <section class="card hover:translate-y-0">
             <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
@@ -14,12 +19,20 @@
                         #{{ $quotation->quote_number ?? 'N/A' }}
                     </h3>
                     <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                        Review the quotation details, download a PDF, or continue it into an invoice.
+                        Review the quotation details, download a PDF, share it with the client, or continue it into an invoice.
                     </p>
                 </div>
 
                 <div class="document-action-row lg:max-w-2xl lg:justify-end">
                     <a href="{{ route('quotations.download', $quotation) }}" class="btn-success">Download PDF</a>
+                    <x-document-share
+                        :url="$shareUrl"
+                        :title="'Quotation #'.($quotation->quote_number ?? $quotation->id)"
+                        :message="$shareMessage"
+                        :phone="$quotation->client?->phone"
+                        :email="$quotation->client?->billing_email ?: $quotation->client?->email"
+                        :country-code="$quotation->client?->country_code"
+                    />
 
                     @unless($quotation->isLocked())
                         <a href="{{ route('invoices.create_from_quotation', $quotation->id) }}" class="btn-primary">Convert to Invoice</a>
