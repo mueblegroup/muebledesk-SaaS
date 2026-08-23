@@ -7,7 +7,7 @@
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
                 <h3 class="section-title">All Invoices</h3>
-                <p class="section-subtitle">Search, filter, export, and manage invoices.</p>
+                <p class="section-subtitle">Search, filter, export, share, and manage invoices.</p>
             </div>
             <a href="{{ route('invoices.create') }}" class="btn-primary">Create New Invoice</a>
         </div>
@@ -56,6 +56,8 @@
                                     $isFullyPaid = (float) $invoice->total_amount > 0
                                         && (float) $invoice->amount_paid >= (float) $invoice->total_amount;
                                     $canRetryEInvoice = $eInvoice && in_array($eInvoice->status, ['invalid', 'rejected', 'failed'], true);
+                                    $shareUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute('shared.invoice', now()->addDays(30), ['invoice' => $invoice]);
+                                    $shareMessage = 'Invoice #'.($invoice->invoice_number ?? $invoice->id).' from '.(app('currentCompany')->name ?? config('app.name')).'. Total: RM '.number_format((float) $invoice->total_amount, 2).'.';
                                 @endphp
                                 <tr>
                                     <td>@unless($invoice->isLocked())<input name="ids[]" value="{{ $invoice->id }}" type="checkbox" class="invoice-checkbox" x-model="selected">@else <span title="Locked">🔒</span> @endunless</td>
@@ -79,14 +81,27 @@
                                     </td>
                                     <td>{{ $invoice->due_date ? $invoice->due_date->format('Y-m-d') : 'N/A' }}</td>
                                     <td class="text-right">
-                                        <a href="{{ route('invoices.show', $invoice) }}" class="mr-3">View</a>
-                                        @unless($invoice->isLocked())<a href="{{ route('invoices.edit', $invoice) }}" class="mr-3">Edit</a>
-                                        <form action="{{ route('invoices.destroy', $invoice) }}" method="POST" class="inline-block" onsubmit="return confirm('Delete this invoice?');">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300">Delete</button>
-                                        </form>
-                                        @else<span class="text-xs font-semibold text-amber-600">Locked</span>@endunless
+                                        <div class="flex flex-wrap items-center justify-end gap-3">
+                                            <a href="{{ route('invoices.show', $invoice) }}">View</a>
+                                            <x-document-share
+                                                :url="$shareUrl"
+                                                :title="'Invoice #'.($invoice->invoice_number ?? $invoice->id)"
+                                                :message="$shareMessage"
+                                                :phone="$invoice->client?->phone"
+                                                :email="$invoice->client?->billing_email ?: $invoice->client?->email"
+                                                :country-code="$invoice->client?->country_code"
+                                            />
+                                            @unless($invoice->isLocked())
+                                                <a href="{{ route('invoices.edit', $invoice) }}">Edit</a>
+                                                <form action="{{ route('invoices.destroy', $invoice) }}" method="POST" class="inline-block" onsubmit="return confirm('Delete this invoice?');">
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300">Delete</button>
+                                                </form>
+                                            @else
+                                                <span class="text-xs font-semibold text-amber-600">Locked</span>
+                                            @endunless
+                                        </div>
                                     </td>
                                 </tr>
                             @endforeach
