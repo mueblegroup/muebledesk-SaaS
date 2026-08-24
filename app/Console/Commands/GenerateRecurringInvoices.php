@@ -17,7 +17,14 @@ use Illuminate\Support\Facades\Log;
 class GenerateRecurringInvoices extends Command
 {
     protected $signature = 'invoices:generate-recurring {--date= : Generate invoices due up to this date, format YYYY-MM-DD} {--dry-run : Show what would be generated without creating invoices}';
-    protected $description = 'Generate actual invoices from active recurring invoice templates that are due in each company timezone.';
+    protected $description = 'Generate all actual invoices from active recurring invoice templates that are due in each company timezone.';
+
+    /**
+     * Hard safety ceiling for one recurring template in a single command run.
+     * This prevents a malformed legacy template from creating an unbounded loop,
+     * while still allowing normal installations to recover years of missed runs.
+     */
+    private const MAX_CATCH_UP_OCCURRENCES = 1000;
 
     public function handle(DocumentNumberGenerator $numberGenerator, ActivityLogger $activityLogger, PaymentGatewayService $paymentGateway): int
     {
@@ -27,8 +34,8 @@ class GenerateRecurringInvoices extends Command
         $skippedCount = 0;
 
         // A tenant can be up to one calendar day ahead of UTC. Pull a narrow
-        // candidate set, then evaluate the due date again in that company's
-        // own IANA timezone before generating anything.
+        // candidate set, then evaluate every due occurrence again in that
+        // company's own IANA timezone before generating anything.
         $candidateDate = $forcedDate ?: Carbon::now('UTC')->addDay()->toDateString();
 
         $due = RecurringInvoice::withoutGlobalScopes()
@@ -61,84 +68,139 @@ class GenerateRecurringInvoices extends Command
             app()->instance('currentCompany', $company);
 
             try {
-                DB::transaction(function () use ($dueTemplate, $runDate, $companyTimezone, $dryRun, $numberGenerator, $activityLogger, $paymentGateway, &$generatedCount, &$skippedCount) {
-                    $recurring = RecurringInvoice::query()->with(['client', 'items', 'company'])
-                        ->whereKey($dueTemplate->id)->lockForUpdate()->first();
+                $processedOccurrences = 0;
 
-                    if (! $recurring || ! $recurring->is_active || $recurring->next_invoice_date?->greaterThan($runDate)) {
-                        $skippedCount++;
-                        return;
-                    }
+                // Deliberately keep processing the same template until its next
+                // invoice date is in the future. This makes the command a true
+                // catch-up job: scheduler downtime, timezone changes, deploys,
+                // or missed cron executions cannot silently discard occurrences.
+                while ($processedOccurrences < self::MAX_CATCH_UP_OCCURRENCES) {
+                    $result = DB::transaction(function () use ($dueTemplate, $runDate, $companyTimezone, $dryRun, $numberGenerator, $activityLogger, $paymentGateway, &$generatedCount, &$skippedCount) {
+                        $recurring = RecurringInvoice::query()->with(['client', 'items', 'company'])
+                            ->whereKey($dueTemplate->id)->lockForUpdate()->first();
 
-                    if (($recurring->end_date && $recurring->next_invoice_date->greaterThan($recurring->end_date)) || $recurring->items->isEmpty()) {
-                        if (! $dryRun && $recurring->end_date && $recurring->next_invoice_date->greaterThan($recurring->end_date)) {
-                            $recurring->update(['is_active' => false]);
+                        if (! $recurring || ! $recurring->is_active || ! $recurring->next_invoice_date) {
+                            return 'done';
                         }
-                        $skippedCount++;
-                        return;
-                    }
 
-                    $invoiceDate = $recurring->next_invoice_date->copy();
-                    $dueDays = (int) ($recurring->client?->payment_terms_days ?? Setting::get('default_invoice_due_days', 14));
-                    $dueDate = $invoiceDate->copy()->addDays(max(0, $dueDays));
+                        // The date has already been advanced by another process,
+                        // or all missed occurrences for this company are caught up.
+                        if ($recurring->next_invoice_date->greaterThan($runDate)) {
+                            return 'done';
+                        }
 
-                    if ($dryRun) {
-                        $this->line('Would generate invoice for '.$recurring->client?->name.' in '.$recurring->company->name.' ('.$companyTimezone.', local date '.$runDate->toDateString().')');
-                        return;
-                    }
+                        if ($recurring->end_date && $recurring->next_invoice_date->greaterThan($recurring->end_date)) {
+                            if (! $dryRun) {
+                                $recurring->update(['is_active' => false]);
+                            }
+                            $skippedCount++;
+                            return 'done';
+                        }
 
-                    $invoice = Invoice::create([
-                        'company_id' => $recurring->company_id,
-                        'client_id' => $recurring->client_id,
-                        'employee_id' => $recurring->employee_id,
-                        'invoice_number' => $numberGenerator->generate(new Invoice, 'invoice_number', 'invoice_prefix', 'invoice_number_format', 'INV', $invoiceDate, (int) $recurring->employee_id, 'invoice_number'),
-                        'date' => $invoiceDate,
-                        'due_date' => $dueDate,
-                        'status' => 'pending',
-                        'sub_total' => $recurring->sub_total,
-                        'discount_type' => $recurring->discount_type,
-                        'discount_value' => $recurring->discount_value,
-                        'discount_amount' => $recurring->discount_amount,
-                        'tax_type' => $recurring->tax_type ?: 'none',
-                        'tax_rate' => $recurring->tax_rate ?? 0,
-                        'tax_amount' => $recurring->tax_amount ?? 0,
-                        'total_amount' => $recurring->total_amount,
-                        'amount_paid' => 0,
-                    ]);
+                        if ($recurring->items->isEmpty()) {
+                            $skippedCount++;
+                            Log::warning('Recurring invoice occurrence skipped because the template has no items.', [
+                                'recurring_invoice_id' => $recurring->id,
+                                'company_id' => $recurring->company_id,
+                                'due_date' => $recurring->next_invoice_date->toDateString(),
+                            ]);
+                            return 'done';
+                        }
 
-                    foreach ($recurring->items as $item) {
-                        $invoice->items()->create([
+                        $invoiceDate = $recurring->next_invoice_date->copy();
+                        $dueDays = (int) ($recurring->client?->payment_terms_days ?? Setting::get('default_invoice_due_days', 14));
+                        $dueDate = $invoiceDate->copy()->addDays(max(0, $dueDays));
+                        $nextDate = $recurring->calculateNextInvoiceDate($invoiceDate);
+
+                        // Guard against malformed frequency data. A next date must
+                        // always move forward or a catch-up loop could never finish.
+                        if (! $nextDate->greaterThan($invoiceDate)) {
+                            throw new \RuntimeException('Recurring invoice next date did not advance.');
+                        }
+
+                        if ($dryRun) {
+                            $this->line(
+                                'Would generate invoice for '.$recurring->client?->name.
+                                ' in '.$recurring->company->name.
+                                ' ('.$companyTimezone.', occurrence '.$invoiceDate->toDateString().', local date '.$runDate->toDateString().')'
+                            );
+
+                            // Dry-run must not update the database, so the caller
+                            // cannot loop on the same unchanged occurrence.
+                            return 'dry-run-done';
+                        }
+
+                        $invoice = Invoice::create([
                             'company_id' => $recurring->company_id,
-                            'item_name' => $item->item_name,
-                            'description' => $item->description,
-                            'quantity' => $item->quantity,
-                            'price' => $item->price,
-                            'total' => $item->total,
+                            'client_id' => $recurring->client_id,
+                            'employee_id' => $recurring->employee_id,
+                            'invoice_number' => $numberGenerator->generate(new Invoice, 'invoice_number', 'invoice_prefix', 'invoice_number_format', 'INV', $invoiceDate, (int) $recurring->employee_id, 'invoice_number'),
+                            'date' => $invoiceDate,
+                            'due_date' => $dueDate,
+                            'status' => 'pending',
+                            'sub_total' => $recurring->sub_total,
+                            'discount_type' => $recurring->discount_type,
+                            'discount_value' => $recurring->discount_value,
+                            'discount_amount' => $recurring->discount_amount,
+                            'tax_type' => $recurring->tax_type ?: 'none',
+                            'tax_rate' => $recurring->tax_rate ?? 0,
+                            'tax_amount' => $recurring->tax_amount ?? 0,
+                            'total_amount' => $recurring->total_amount,
+                            'amount_paid' => 0,
                         ]);
+
+                        foreach ($recurring->items as $item) {
+                            $invoice->items()->create([
+                                'company_id' => $recurring->company_id,
+                                'item_name' => $item->item_name,
+                                'description' => $item->description,
+                                'quantity' => $item->quantity,
+                                'price' => $item->price,
+                                'total' => $item->total,
+                            ]);
+                        }
+
+                        if ($paymentLink = $paymentGateway->createPaymentLink($invoice)) {
+                            $invoice->update(['payment_link' => $paymentLink]);
+                        }
+
+                        $updates = ['next_invoice_date' => $nextDate];
+                        if ($recurring->end_date && $nextDate->greaterThan($recurring->end_date)) {
+                            $updates['is_active'] = false;
+                        }
+                        $recurring->update($updates);
+
+                        $activityLogger->log('recurring_invoice.generated', 'Recurring invoice generated '.$invoice->invoice_number, $invoice, [], [
+                            'recurring_invoice_id' => $recurring->id,
+                            'occurrence_date' => $invoiceDate->toDateString(),
+                            'next_invoice_date' => $nextDate->toDateString(),
+                            'frequency' => $recurring->frequencyLabel(),
+                            'company_timezone' => $companyTimezone,
+                            'local_run_date' => $runDate->toDateString(),
+                            'catch_up' => $invoiceDate->lessThan($runDate),
+                            'payment_gateway' => 'stripe',
+                        ]);
+
+                        $generatedCount++;
+                        return 'generated';
+                    });
+
+                    if ($result !== 'generated') {
+                        break;
                     }
 
-                    if ($paymentLink = $paymentGateway->createPaymentLink($invoice)) {
-                        $invoice->update(['payment_link' => $paymentLink]);
-                    }
+                    $processedOccurrences++;
+                }
 
-                    $nextDate = $recurring->calculateNextInvoiceDate($invoiceDate);
-                    $updates = ['next_invoice_date' => $nextDate];
-                    if ($recurring->end_date && $nextDate->greaterThan($recurring->end_date)) {
-                        $updates['is_active'] = false;
-                    }
-                    $recurring->update($updates);
-
-                    $activityLogger->log('recurring_invoice.generated', 'Recurring invoice generated '.$invoice->invoice_number, $invoice, [], [
-                        'recurring_invoice_id' => $recurring->id,
-                        'next_invoice_date' => $nextDate->toDateString(),
-                        'frequency' => $recurring->frequencyLabel(),
+                if ($processedOccurrences >= self::MAX_CATCH_UP_OCCURRENCES) {
+                    Log::error('Recurring invoice catch-up safety limit reached.', [
+                        'recurring_invoice_id' => $dueTemplate->id,
+                        'company_id' => $dueTemplate->company_id,
                         'company_timezone' => $companyTimezone,
-                        'local_run_date' => $runDate->toDateString(),
-                        'payment_gateway' => 'stripe',
+                        'limit' => self::MAX_CATCH_UP_OCCURRENCES,
                     ]);
-
-                    $generatedCount++;
-                });
+                    $skippedCount++;
+                }
             } catch (\Throwable $e) {
                 $skippedCount++;
                 Log::error('Recurring Invoice Generation Error', [
