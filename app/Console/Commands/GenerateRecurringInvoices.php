@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Log;
 
 class GenerateRecurringInvoices extends Command
 {
-    protected $signature = 'invoices:generate-recurring {--date= : Generate invoices due up to this date, format YYYY-MM-DD} {--dry-run : Show what would be generated without creating invoices}';
+    protected $signature = 'invoices:generate-recurring {--date= : Generate invoices due up to this date, format YYYY-MM-DD} {--company= : Restrict generation to one company ID} {--dry-run : Show what would be generated without creating invoices}';
     protected $description = 'Generate all actual invoices from active recurring invoice templates that are due in each company timezone.';
 
     /**
@@ -29,6 +29,7 @@ class GenerateRecurringInvoices extends Command
     public function handle(DocumentNumberGenerator $numberGenerator, ActivityLogger $activityLogger, PaymentGatewayService $paymentGateway): int
     {
         $forcedDate = $this->option('date') ? Carbon::parse($this->option('date'))->toDateString() : null;
+        $companyId = $this->option('company') !== null ? (int) $this->option('company') : null;
         $dryRun = (bool) $this->option('dry-run');
         $generatedCount = 0;
         $skippedCount = 0;
@@ -40,6 +41,7 @@ class GenerateRecurringInvoices extends Command
 
         $due = RecurringInvoice::withoutGlobalScopes()
             ->whereNotNull('company_id')
+            ->when($companyId, fn ($query) => $query->where('company_id', $companyId))
             ->where('is_active', true)
             ->whereDate('next_invoice_date', '<=', $candidateDate)
             ->orderBy('company_id')
