@@ -6,6 +6,8 @@ use App\Models\Company;
 use DateTimeZone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class ClientPortalController extends Controller
@@ -88,10 +90,56 @@ class ClientPortalController extends Controller
             'timezone' => ['required', 'timezone'],
         ]);
 
+        $oldTimezone = $company->timezone ?: 'UTC';
+        $newTimezone = $validated['timezone'];
+
+        if ($oldTimezone === $newTimezone) {
+            return back()->with('success', 'Company timezone is already set to '.$newTimezone.'.');
+        }
+
+        // Never rewrite recurring next_invoice_date values when a timezone
+        // changes. Those are business occurrence dates, not UTC timestamps.
+        // After switching timezone, immediately run a company-scoped catch-up
+        // pass. The hourly scheduler remains the fallback if this pass fails.
         $company->update([
-            'timezone' => $validated['timezone'],
+            'timezone' => $newTimezone,
         ]);
 
-        return back()->with('success', 'Company timezone updated successfully. Recurring invoices will follow this timezone.');
+        try {
+            $exitCode = Artisan::call('invoices:generate-recurring', [
+                '--company' => (string) $company->getKey(),
+            ]);
+
+            if ($exitCode !== 0) {
+                Log::warning('Immediate recurring invoice catch-up returned a non-zero exit code after timezone update.', [
+                    'company_id' => $company->getKey(),
+                    'old_timezone' => $oldTimezone,
+                    'new_timezone' => $newTimezone,
+                    'exit_code' => $exitCode,
+                    'output' => Artisan::output(),
+                ]);
+
+                return back()
+                    ->with('success', 'Company timezone updated successfully.')
+                    ->with('warning', 'The immediate recurring invoice check could not complete. The hourly scheduler will retry automatically.');
+            }
+        } catch (\Throwable $e) {
+            Log::error('Immediate recurring invoice catch-up failed after timezone update.', [
+                'company_id' => $company->getKey(),
+                'old_timezone' => $oldTimezone,
+                'new_timezone' => $newTimezone,
+                'message' => $e->getMessage(),
+                'exception' => $e,
+            ]);
+
+            return back()
+                ->with('success', 'Company timezone updated successfully.')
+                ->with('warning', 'The immediate recurring invoice check could not complete. The hourly scheduler will retry automatically.');
+        }
+
+        return back()->with(
+            'success',
+            'Company timezone updated successfully. All recurring invoices due in the new timezone were checked and caught up.'
+        );
     }
 }
