@@ -5,8 +5,9 @@
             <div class="flex">
                 <!-- Logo -->
                 <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}">
-                        <x-application-logo class="block h-9 w-auto fill-current text-gray-800 dark:text-gray-200" />
+                    <a href="{{ route('dashboard') }}" class="flex items-center gap-3">
+                        <span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 text-base font-black text-white shadow-lg shadow-indigo-500/25">M</span>
+                        <span class="hidden text-sm font-black text-slate-950 dark:text-white sm:block">MuebleDesk</span>
                     </a>
                 </div>
 
