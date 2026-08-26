@@ -33,7 +33,7 @@
     {{ $slot }}
     <footer class="border-t border-slate-200 bg-slate-950 text-white">
         <div class="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-2 lg:grid-cols-4 lg:px-8">
-            <div class="lg:col-span-2"><div class="flex items-center gap-3"><span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-600 font-black">M</span><span class="text-lg font-black">MuebleDesk</span></div><p class="mt-4 max-w-xl text-sm leading-7 text-slate-400">Manage customers, quotations, invoices, payments, recurring billing, expenses and Malaysian e-Invoices from one secure business workspace.</p></div>
+            <div class="lg:col-span-2"><div class="flex items-center gap-3"><span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 font-black text-white">M</span><span class="text-lg font-black">MuebleDesk</span></div><p class="mt-4 max-w-xl text-sm leading-7 text-slate-400">Manage customers, quotations, invoices, payments, recurring billing, expenses and Malaysian e-Invoices from one secure business workspace.</p></div>
             <div><p class="font-extrabold">Product</p><div class="mt-4 grid gap-3 text-sm text-slate-400"><a href="{{ route('marketing.features') }}">Features</a><a href="{{ route('marketing.how-it-works') }}">How it works</a><a href="{{ route('marketing.security') }}">Security</a><a href="{{ route('marketing.pricing') }}">Pricing</a></div></div>
             <div><p class="font-extrabold">Get started</p><div class="mt-4 grid gap-3 text-sm text-slate-400"><a href="{{ route('register') }}">Create account</a><a href="{{ route('login') }}">Log in</a><a href="{{ route('marketing.contact') }}">Contact</a></div></div>
         </div>
