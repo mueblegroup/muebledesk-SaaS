@@ -31,7 +31,7 @@
     <aside class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col bg-slate-950 text-white transition lg:sticky lg:top-0 lg:h-screen lg:translate-x-0" :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
         <div class="border-b border-white/10 px-5 py-5">
             <a href="{{ route('superadmin.dashboard') }}" class="flex items-center gap-3">
-                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-fuchsia-500 to-indigo-600 text-xl font-black">M</span>
+                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 text-xl font-black text-white shadow-lg shadow-indigo-500/25">M</span>
                 <span><span class="block text-base font-extrabold">MuebleDesk</span><span class="block text-xs text-slate-400">Platform administration</span></span>
             </a>
         </div>
