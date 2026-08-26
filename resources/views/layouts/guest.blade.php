@@ -21,7 +21,7 @@
         <div class="absolute -bottom-32 right-0 h-96 w-96 rounded-full bg-indigo-400/10 blur-3xl"></div>
         <div class="relative">
             <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3">
-                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-xl font-black shadow-xl shadow-indigo-950/30">M</span>
+                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 text-xl font-black text-white shadow-xl shadow-indigo-950/30">M</span>
                 <span><span class="block text-lg font-black text-white">{{ config('app.name', 'MuebleDesk') }}</span><span class="block text-xs text-slate-400">Business operations platform</span></span>
             </a>
         </div>
@@ -51,7 +51,7 @@
         <div class="relative w-full max-w-2xl">
             <div class="mb-7 flex items-center justify-between lg:hidden">
                 <a href="{{ route('marketing.home') }}" class="inline-flex items-center gap-3 text-slate-950">
-                    <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-lg font-black text-white shadow-lg shadow-indigo-600/20">M</span>
+                    <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 text-lg font-black text-white shadow-lg shadow-indigo-600/20">M</span>
                     <span class="font-black">{{ config('app.name', 'MuebleDesk') }}</span>
                 </a>
                 <a href="{{ route('marketing.home') }}" class="text-sm font-bold text-slate-500 transition hover:text-indigo-600">Back to website</a>
