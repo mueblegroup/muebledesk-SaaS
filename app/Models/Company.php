@@ -71,6 +71,11 @@ class Company extends Model
         return $this->clients()->count();
     }
 
+    public function usageForRole(string $role): int
+    {
+        return $role === 'customer' ? $this->clientUsage() : $this->roleUsage($role);
+    }
+
     public function roleLimit(string $role): ?int
     {
         $subscription = $this->subscription;
@@ -86,16 +91,17 @@ class Company extends Model
     public function roleUsagePercentage(string $role): ?int
     {
         $limit = $this->roleLimit($role);
+        $used = $this->usageForRole($role);
 
         if ($limit === null) {
             return null;
         }
 
         if ($limit <= 0) {
-            return $this->roleUsage($role) > 0 ? 100 : 0;
+            return $used > 0 ? 100 : 0;
         }
 
-        return min(100, (int) floor(($this->roleUsage($role) / $limit) * 100));
+        return min(100, (int) floor(($used / $limit) * 100));
     }
 
     public function planUsage(): array
@@ -105,7 +111,7 @@ class Company extends Model
             'employee' => 'Employees',
             'customer' => 'Customers',
         ])->mapWithKeys(function (string $label, string $role) {
-            $used = $this->roleUsage($role);
+            $used = $this->usageForRole($role);
             $limit = $this->roleLimit($role);
             $percentage = $this->roleUsagePercentage($role);
 
