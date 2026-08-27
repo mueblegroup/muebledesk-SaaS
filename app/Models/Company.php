@@ -69,6 +69,56 @@ class Company extends Model
         return $this->clients()->count();
     }
 
+    public function roleLimit(string $role): ?int
+    {
+        $subscription = $this->subscription;
+        $plan = $subscription?->plan;
+
+        if (! $subscription?->isActive() || ! $plan) {
+            return null;
+        }
+
+        return $plan->limitForRole($role);
+    }
+
+    public function roleUsagePercentage(string $role): ?int
+    {
+        $limit = $this->roleLimit($role);
+
+        if ($limit === null) {
+            return null;
+        }
+
+        if ($limit <= 0) {
+            return $this->roleUsage($role) > 0 ? 100 : 0;
+        }
+
+        return min(100, (int) floor(($this->roleUsage($role) / $limit) * 100));
+    }
+
+    public function planUsage(): array
+    {
+        return collect([
+            'admin' => 'Admins',
+            'employee' => 'Employees',
+            'customer' => 'Customers',
+        ])->mapWithKeys(function (string $label, string $role) {
+            $used = $this->roleUsage($role);
+            $limit = $this->roleLimit($role);
+            $percentage = $this->roleUsagePercentage($role);
+
+            return [$role => [
+                'role' => $role,
+                'label' => $label,
+                'used' => $used,
+                'limit' => $limit,
+                'percentage' => $percentage,
+                'near_limit' => $limit !== null && $percentage !== null && $percentage >= 80 && $used < $limit,
+                'at_limit' => $limit !== null && $used >= $limit,
+            ]];
+        })->all();
+    }
+
     public function seatLimit(): ?int
     {
         $plan = $this->subscription?->plan;
@@ -87,5 +137,20 @@ class Company extends Model
     public function seatsUsed(): int
     {
         return $this->roleUsage('admin') + $this->roleUsage('employee');
+    }
+
+    public function seatUsagePercentage(): ?int
+    {
+        $limit = $this->seatLimit();
+
+        if ($limit === null) {
+            return null;
+        }
+
+        if ($limit <= 0) {
+            return $this->seatsUsed() > 0 ? 100 : 0;
+        }
+
+        return min(100, (int) floor(($this->seatsUsed() / $limit) * 100));
     }
 }
