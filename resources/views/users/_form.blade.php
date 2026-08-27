@@ -1,6 +1,7 @@
 @php
     $client = $user->clients ?? null;
     $selectedRole = old('role', $user->role?->value ?? $user->getRawOriginal('role') ?? '');
+    $roleUsage = collect($planUsage ?? []);
 @endphp
 
 <div x-data="{ role: @js($selectedRole) }" class="space-y-8">
@@ -31,10 +32,21 @@
                 <select id="role" name="role" x-model="role" required class="block w-full">
                     <option value="">Select role</option>
                     @foreach($roles as $roleOption)
-                        <option value="{{ $roleOption->value }}">{{ ucfirst($roleOption->value) }}</option>
+                        @php
+                            $quota = $roleUsage->get($roleOption->value);
+                            $atLimit = (bool) ($quota['at_limit'] ?? false);
+                            $disableOption = $atLimit && $selectedRole !== $roleOption->value;
+                        @endphp
+                        <option value="{{ $roleOption->value }}" @disabled($disableOption)>
+                            {{ ucfirst($roleOption->value) }}
+                            @if ($quota && $quota['limit'] !== null)
+                                — {{ $quota['used'] }}/{{ $quota['limit'] }} used{{ $atLimit ? ' (limit reached)' : '' }}
+                            @endif
+                        </option>
                     @endforeach
                 </select>
                 <x-input-error :messages="$errors->get('role')" class="mt-2" />
+                <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Roles at their plan limit cannot be selected for a new account. Backend enforcement also prevents bypassing this restriction.</p>
             </div>
             <div x-show="role !== 'customer'" x-cloak>
                 <label for="job_title" class="mb-2 block text-sm font-bold">Job Title *</label>
