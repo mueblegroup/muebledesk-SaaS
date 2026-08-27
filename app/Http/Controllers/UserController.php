@@ -22,10 +22,19 @@ class UserController extends Controller
 
     public function index(Request $request)
     {
+        $company = $this->currentCompany($request);
         $users = $this->filteredUsers($request)->paginate((int) $request->input('per_page', 10))->withQueryString();
         $roles = $this->tenantRoles();
 
-        return view('users.index', compact('users', 'roles'));
+        return view('users.index', [
+            'users' => $users,
+            'roles' => $roles,
+            'planUsage' => $company->planUsage(),
+            'seatLimit' => $company->seatLimit(),
+            'seatsUsed' => $company->seatsUsed(),
+            'seatUsagePercentage' => $company->seatUsagePercentage(),
+            'planName' => $company->subscription?->plan?->name,
+        ]);
     }
 
     public function export(Request $request)
@@ -63,21 +72,32 @@ class UserController extends Controller
 
         return view('users.create', [
             'roles' => $this->tenantRoles(),
+            'planUsage' => $company->planUsage(),
             'seatLimit' => $company->seatLimit(),
             'seatsUsed' => $company->seatsUsed(),
+            'seatUsagePercentage' => $company->seatUsagePercentage(),
+            'planName' => $company->subscription?->plan?->name,
         ]);
     }
 
     public function store(Request $request, ActivityLogger $activityLogger)
     {
         $company = $this->currentCompany($request);
-        $this->ensureSeatAvailable($company);
         $validated = $request->validate($this->rules($request));
+        $this->ensureRoleAvailable($company, $validated['role']);
 
         try {
             $user = DB::transaction(function () use ($validated, $company) {
+                $lockedCompany = Company::query()
+                    ->whereKey($company->id)
+                    ->lockForUpdate()
+                    ->firstOrFail()
+                    ->load('subscription.plan');
+
+                $this->ensureRoleAvailable($lockedCompany, $validated['role']);
+
                 $user = User::create([
-                    'current_company_id' => $company->id,
+                    'current_company_id' => $lockedCompany->id,
                     'name' => $validated['name'],
                     'email' => $validated['email'],
                     'phone' => $validated['phone'],
@@ -88,7 +108,7 @@ class UserController extends Controller
                     'email_verified_at' => now(),
                 ]);
 
-                $company->users()->attach($user->id, [
+                $lockedCompany->users()->attach($user->id, [
                     'role' => $validated['role'] === UserRoleEnum::Admin->value ? 'admin' : 'member',
                     'joined_at' => now(),
                 ]);
@@ -103,6 +123,8 @@ class UserController extends Controller
             $activityLogger->log('user.created', 'Team member created', $user, [], $user->only(['id', 'name', 'email', 'phone', 'role']));
 
             return redirect()->route('users.index')->with('success', 'Team member created successfully.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Error creating user: '.$e->getMessage(), ['request' => $request->except(['password', 'password_confirmation']), 'exception' => $e]);
 
@@ -116,7 +138,11 @@ class UserController extends Controller
         abort_unless($company->users()->whereKey($user->id)->exists(), 404);
         $user->load('clients');
 
-        return view('users.edit', ['user' => $user, 'roles' => $this->tenantRoles()]);
+        return view('users.edit', [
+            'user' => $user,
+            'roles' => $this->tenantRoles(),
+            'planUsage' => $company->planUsage(),
+        ]);
     }
 
     public function update(Request $request, User $user, ActivityLogger $activityLogger)
@@ -125,10 +151,25 @@ class UserController extends Controller
         abort_unless($company->users()->whereKey($user->id)->exists(), 404);
         $validated = $request->validate($this->rules($request, $user));
         $old = $user->only(['id', 'name', 'email', 'phone', 'job_title', 'address', 'role']);
+        $currentRole = $user->role?->value ?? $user->getRawOriginal('role');
 
-        DB::transaction(function () use ($validated, $user, $company) {
+        if ($validated['role'] !== $currentRole) {
+            $this->ensureRoleAvailable($company, $validated['role']);
+        }
+
+        DB::transaction(function () use ($validated, $user, $company, $currentRole) {
+            $lockedCompany = Company::query()
+                ->whereKey($company->id)
+                ->lockForUpdate()
+                ->firstOrFail()
+                ->load('subscription.plan');
+
+            if ($validated['role'] !== $currentRole) {
+                $this->ensureRoleAvailable($lockedCompany, $validated['role']);
+            }
+
             $user->fill([
-                'current_company_id' => $company->id,
+                'current_company_id' => $lockedCompany->id,
                 'name' => $validated['name'],
                 'email' => $validated['email'],
                 'phone' => $validated['phone'],
@@ -141,7 +182,7 @@ class UserController extends Controller
             }
             $user->save();
 
-            $company->users()->updateExistingPivot($user->id, [
+            $lockedCompany->users()->updateExistingPivot($user->id, [
                 'role' => $validated['role'] === UserRoleEnum::Admin->value ? 'admin' : 'member',
             ]);
 
@@ -261,14 +302,27 @@ class UserController extends Controller
         $company = $request->attributes->get('currentCompany') ?: $request->user()->currentCompany;
         abort_unless($company instanceof Company, 404, 'Company workspace not found.');
 
-        return $company->loadMissing('subscription');
+        return $company->loadMissing('subscription.plan');
     }
 
-    private function ensureSeatAvailable(Company $company): void
+    private function ensureRoleAvailable(Company $company, string $role): void
     {
         $subscription = $company->subscription;
         abort_unless($subscription?->isActive(), 402, 'An active platform subscription is required.');
-        abort_if($company->seatsUsed() >= $subscription->seats, 422, 'Your plan seat limit has been reached. Upgrade the company plan to add more users.');
+
+        $limit = $company->roleLimit($role);
+        if ($limit === null) {
+            return;
+        }
+
+        $used = $company->roleUsage($role);
+        $label = ucfirst($role);
+
+        abort_if(
+            $used >= $limit,
+            422,
+            "Your {$subscription->plan?->name} plan allows a maximum of {$limit} {$label} account(s). Remove an existing {$role} or upgrade the company plan to add another."
+        );
     }
 
     private function tenantRoles(): array
