@@ -12,6 +12,9 @@
         $activeSubscriptions = $companies->filter(fn ($company) => $company->subscription?->isActive())->count();
         $totalAdmins = $companies->sum(fn ($company) => $company->roleUsage('admin'));
         $totalEmployees = $companies->sum(fn ($company) => $company->roleUsage('employee'));
+        $currentUsage = $currentCompany?->planUsage() ?? [];
+        $currentAtLimit = collect($currentUsage)->filter(fn ($usage) => $usage['at_limit'] ?? false);
+        $currentNearLimit = collect($currentUsage)->filter(fn ($usage) => $usage['near_limit'] ?? false);
     @endphp
 
     <div class="mx-auto max-w-7xl space-y-8">
@@ -37,6 +40,28 @@
             </div>
         </section>
 
+        @if ($currentCompany && ($currentAtLimit->isNotEmpty() || $currentNearLimit->isNotEmpty()))
+            @php
+                $critical = $currentAtLimit->isNotEmpty();
+                $affected = ($critical ? $currentAtLimit : $currentNearLimit)->pluck('label')->implode(', ');
+            @endphp
+            <section class="overflow-hidden rounded-[2rem] border {{ $critical ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50' }} shadow-sm">
+                <div class="flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+                    <div class="flex items-start gap-4">
+                        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl {{ $critical ? 'bg-red-600' : 'bg-amber-500' }} text-xl font-black text-white">{{ $critical ? '!' : '↑' }}</div>
+                        <div>
+                            <p class="text-xs font-black uppercase tracking-[.16em] {{ $critical ? 'text-red-700' : 'text-amber-700' }}">{{ $critical ? 'Plan capacity reached' : 'You are approaching your plan limit' }}</p>
+                            <h2 class="mt-1 text-xl font-black text-slate-950">{{ $critical ? 'Your team growth is currently limited.' : 'Make room for your next hire or customer.' }}</h2>
+                            <p class="mt-2 max-w-3xl text-sm leading-6 {{ $critical ? 'text-red-800' : 'text-amber-800' }}">
+                                {{ $critical ? 'Your current plan has reached capacity for '.$affected.'. Upgrade now to continue adding accounts without interrupting onboarding.' : 'Your '.$affected.' usage is already at 80% or more. Upgrading early keeps new-user onboarding available when you need it.' }}
+                            </p>
+                        </div>
+                    </div>
+                    <a href="{{ route(Route::has('client-portal.billing.show') ? 'client-portal.billing.show' : 'client-portal.billing.index', $currentCompany) }}" class="shrink-0 rounded-2xl {{ $critical ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-500 hover:bg-amber-400' }} px-5 py-3 text-center text-sm font-black text-white shadow-sm transition">Upgrade plan</a>
+                </div>
+            </section>
+        @endif
+
         <section class="grid gap-4 md:grid-cols-3">
             @foreach ([['Account ready', 'Your SaaS identity and secure login are active.', '✓'], ['Company workspace', 'Your company subdomain is ready to open.', '⌂'], ['Subscription access', $activeSubscriptions ? 'Your active plan controls admin, employee and client limits.' : 'Choose a plan to activate the company workspace.', '◇']] as [$title, $description, $icon])
                 <div class="rounded-3xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-950/5">
@@ -56,10 +81,10 @@
                         $subscription = $company->subscription;
                         $plan = $subscription?->plan;
                         $isActive = $subscription?->isActive() ?? false;
-                        $adminUsed = $company->roleUsage('admin');
-                        $employeeUsed = $company->roleUsage('employee');
-                        $clientUsed = $company->clientUsage();
+                        $usage = $company->planUsage();
                         $formatLimit = fn ($limit) => $limit === null ? 'Unlimited' : $limit;
+                        $capacityIssues = collect($usage)->filter(fn ($item) => ($item['near_limit'] ?? false) || ($item['at_limit'] ?? false));
+                        $hasFullLimit = $capacityIssues->contains(fn ($item) => $item['at_limit'] ?? false);
                     @endphp
                     <article class="group overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-2xl hover:shadow-slate-950/10">
                         <div class="p-6 sm:p-7">
@@ -70,12 +95,40 @@
                                 </div>
                                 <span class="rounded-full px-3 py-1 text-xs font-extrabold {{ $isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">{{ $isActive ? ucfirst($subscription->status) : 'Plan required' }}</span>
                             </div>
+
                             <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                                 <div class="rounded-2xl bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Plan</p><p class="mt-2 truncate text-sm font-extrabold">{{ $plan?->name ?? 'None' }}</p></div>
-                                <div class="rounded-2xl bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Admins</p><p class="mt-2 text-sm font-extrabold">{{ $adminUsed }} / {{ $formatLimit($plan?->admin_limit) }}</p></div>
-                                <div class="rounded-2xl bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Employees</p><p class="mt-2 text-sm font-extrabold">{{ $employeeUsed }} / {{ $formatLimit($plan?->employee_limit) }}</p></div>
-                                <div class="rounded-2xl bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Clients</p><p class="mt-2 text-sm font-extrabold">{{ $clientUsed }} / {{ $formatLimit($plan?->client_limit) }}</p></div>
+                                @foreach (['admin', 'employee', 'customer'] as $role)
+                                    @php $item = $usage[$role]; @endphp
+                                    <div class="rounded-2xl {{ $item['at_limit'] ? 'bg-red-50' : ($item['near_limit'] ? 'bg-amber-50' : 'bg-slate-50') }} p-4">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <p class="text-[11px] font-bold uppercase tracking-wide {{ $item['at_limit'] ? 'text-red-500' : ($item['near_limit'] ? 'text-amber-600' : 'text-slate-400') }}">{{ $item['label'] }}</p>
+                                            @if ($item['percentage'] !== null)<span class="text-[10px] font-black {{ $item['at_limit'] ? 'text-red-600' : ($item['near_limit'] ? 'text-amber-700' : 'text-slate-400') }}">{{ $item['percentage'] }}%</span>@endif
+                                        </div>
+                                        <p class="mt-2 text-sm font-extrabold text-slate-950">{{ $item['used'] }} / {{ $formatLimit($item['limit']) }}</p>
+                                        @if ($item['limit'] !== null)
+                                            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-white/80"><div class="h-full rounded-full {{ $item['at_limit'] ? 'bg-red-500' : ($item['near_limit'] ? 'bg-amber-500' : 'bg-indigo-500') }}" style="width: {{ $item['percentage'] }}%"></div></div>
+                                            @php $remaining = max(0, $item['limit'] - $item['used']); @endphp
+                                            @if ($item['at_limit'])
+                                                <p class="mt-2 text-[11px] font-bold text-red-700">No slots remaining</p>
+                                            @elseif ($item['near_limit'])
+                                                <p class="mt-2 text-[11px] font-bold text-amber-700">Only {{ $remaining }} {{ Str::singular(strtolower($item['label'])) }} slot{{ $remaining === 1 ? '' : 's' }} left</p>
+                                            @endif
+                                        @endif
+                                    </div>
+                                @endforeach
                             </div>
+
+                            @if ($capacityIssues->isNotEmpty())
+                                <div class="mt-4 flex flex-col gap-3 rounded-2xl border {{ $hasFullLimit ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50' }} p-4 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <p class="text-sm font-black {{ $hasFullLimit ? 'text-red-800' : 'text-amber-800' }}">{{ $hasFullLimit ? 'You have reached a plan limit.' : 'Your company is getting close to capacity.' }}</p>
+                                        <p class="mt-1 text-xs leading-5 {{ $hasFullLimit ? 'text-red-700' : 'text-amber-700' }}">{{ $hasFullLimit ? 'Upgrade to keep adding users and customers.' : 'Consider upgrading now so growth is not interrupted when another account needs access.' }}</p>
+                                    </div>
+                                    <a href="{{ route(Route::has('client-portal.billing.show') ? 'client-portal.billing.show' : 'client-portal.billing.index', $company) }}" class="shrink-0 rounded-xl {{ $hasFullLimit ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-500 hover:bg-amber-400' }} px-4 py-2.5 text-center text-xs font-black text-white transition">View upgrade options</a>
+                                </div>
+                            @endif
+
                             <div class="mt-3 rounded-2xl border border-slate-100 px-4 py-3 text-xs text-slate-500">Your access role: <span class="font-extrabold capitalize text-slate-700">{{ $company->pivot->role ?? 'member' }}</span>@if ($subscription?->ends_at)<span class="mx-2">·</span>Active until {{ $subscription->ends_at->format('d M Y') }}@endif</div>
 
                             <form method="POST" action="{{ route('companies.timezone.update', $company) }}" class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
