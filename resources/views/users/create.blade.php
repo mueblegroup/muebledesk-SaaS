@@ -9,6 +9,8 @@
             <p class="section-subtitle">Create an administrator, employee, or customer with the details required for their role.</p>
         </div>
 
+        @include('users._plan_usage')
+
         <form method="POST" action="{{ route('users.store') }}" class="space-y-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             @csrf
             @include('users._form', ['user' => new \App\Models\User])
