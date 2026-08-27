@@ -1,7 +1,7 @@
 const STORAGE_KEY = 'muebledesk-theme';
 const media = window.matchMedia('(prefers-color-scheme: dark)');
 
-const normalizeTheme = (theme) => ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
+const normalizeTheme = (theme) => ['light', 'dark', 'system'].includes(theme) ? theme : 'light';
 const forcedTheme = document.documentElement.dataset.forceTheme;
 
 const applyTheme = (theme) => {
@@ -15,7 +15,7 @@ const applyTheme = (theme) => {
     return selectedTheme;
 };
 
-const getStoredTheme = () => normalizeTheme(localStorage.getItem(STORAGE_KEY) || 'system');
+const getStoredTheme = () => normalizeTheme(localStorage.getItem(STORAGE_KEY) || 'light');
 
 const setStoredTheme = (theme) => {
     const selectedTheme = normalizeTheme(theme);
