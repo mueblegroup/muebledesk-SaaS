@@ -315,7 +315,7 @@ class UserController extends Controller
             return;
         }
 
-        $used = $company->roleUsage($role);
+        $used = $company->usageForRole($role);
         $label = ucfirst($role);
 
         abort_if(
