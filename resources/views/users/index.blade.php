@@ -14,6 +14,8 @@
             <a href="{{ route('users.create') }}" class="btn-primary">Create New User</a>
         </div>
 
+        @include('users._plan_usage')
+
         <x-filters-toolbar
             :action="route('users.index')"
             search-placeholder="Search name or email..."
