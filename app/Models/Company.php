@@ -54,7 +54,9 @@ class Company extends Model
     public function roleUsage(string $role): int
     {
         if ($this->relationLoaded('users')) {
-            return $this->users->where('role', $role)->count();
+            return $this->users
+                ->filter(fn (User $user) => ($user->role?->value ?? $user->getRawOriginal('role')) === $role)
+                ->count();
         }
 
         return $this->users()->where('users.role', $role)->count();
