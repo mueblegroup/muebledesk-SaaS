@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
 
 class Client extends Model
 {
@@ -39,6 +40,45 @@ class Client extends Model
     protected $casts = [
         'payment_terms_days' => 'integer',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Client $client): void {
+            if (! app()->bound('currentCompany')) {
+                return;
+            }
+
+            $company = app('currentCompany');
+            if (! $company instanceof Company) {
+                return;
+            }
+
+            $company->loadMissing('subscription.plan');
+            $subscription = $company->subscription;
+
+            if (! $subscription?->isActive()) {
+                throw ValidationException::withMessages([
+                    'plan' => 'An active platform subscription is required before adding customers.',
+                ]);
+            }
+
+            $limit = $company->roleLimit('customer');
+            if ($limit === null) {
+                return;
+            }
+
+            $used = static::query()
+                ->withoutGlobalScopes()
+                ->where('company_id', $company->getKey())
+                ->count();
+
+            if ($used >= $limit) {
+                throw ValidationException::withMessages([
+                    'plan' => "Your {$subscription->plan?->name} plan allows a maximum of {$limit} customer account(s). Remove an existing customer or upgrade the company plan to add another.",
+                ]);
+            }
+        });
+    }
 
     public function employee()
     {
