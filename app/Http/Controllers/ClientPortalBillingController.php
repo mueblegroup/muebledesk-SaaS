@@ -133,8 +133,16 @@ class ClientPortalBillingController extends Controller
     private function activateFromCheckout(Company $company, array $session, StripePlatformBillingService $stripe): void
     {
         $plan = PlatformSubscriptionPlan::findOrFail((int) ($session['metadata']['plan_id'] ?? 0));
-        $subscriptionId = (string) ($session['subscription'] ?? '');
-        $subscriptionData = $subscriptionId !== '' ? $stripe->retrieveSubscription($subscriptionId) : [];
+        $subscriptionValue = $session['subscription'] ?? null;
+
+        if (is_array($subscriptionValue)) {
+            $subscriptionId = (string) ($subscriptionValue['id'] ?? '');
+            $subscriptionData = $subscriptionValue;
+        } else {
+            $subscriptionId = (string) ($subscriptionValue ?? '');
+            $subscriptionData = $subscriptionId !== '' ? $stripe->retrieveSubscription($subscriptionId) : [];
+        }
+
         $startsAt = isset($subscriptionData['current_period_start']) ? now()->setTimestamp($subscriptionData['current_period_start']) : now();
         $remoteEnd = isset($subscriptionData['current_period_end']) ? now()->setTimestamp($subscriptionData['current_period_end']) : null;
         $expiresAt = $plan->calculateExpiry($startsAt);
