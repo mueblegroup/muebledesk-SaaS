@@ -75,6 +75,11 @@ class StripePlatformBillingService
             throw new RuntimeException('Only the currently active plan can be extended.');
         }
 
+        $amount = (int) round(((float) $plan->price) * 100);
+        if ($amount <= 0) {
+            throw new RuntimeException('A paid subscription extension must have a positive price.');
+        }
+
         $payload = [
             'mode' => 'payment',
             'success_url' => $successUrl.'?session_id={CHECKOUT_SESSION_ID}',
@@ -82,7 +87,7 @@ class StripePlatformBillingService
             'client_reference_id' => (string) $company->id,
             'line_items[0][quantity]' => 1,
             'line_items[0][price_data][currency]' => strtolower($plan->currency),
-            'line_items[0][price_data][unit_amount]' => (int) round(((float) $plan->price) * 100),
+            'line_items[0][price_data][unit_amount]' => $amount,
             'line_items[0][price_data][product_data][name]' => $plan->name.' extension',
             'line_items[0][price_data][product_data][description]' => 'Prepaid extension for '.$plan->durationLabel(),
             'metadata[company_id]' => (string) $company->id,
@@ -100,17 +105,164 @@ class StripePlatformBillingService
         return $this->request('POST', '/v1/checkout/sessions', $payload);
     }
 
+    /**
+     * Move the next Stripe renewal to the requested access-expiry date without
+     * mutating the live subscription into an ad-hoc trial. The existing paid
+     * period remains intact, a no-charge schedule phase covers the prepaid
+     * extension, then recurring billing resumes (or cancels for non-renewing
+     * subscriptions).
+     */
     public function postponeRenewalTo(CompanySubscription $subscription, DateTimeInterface $renewAt): array
     {
         if (! $subscription->stripe_subscription_id) {
             throw new RuntimeException('This subscription does not have a Stripe subscription ID.');
         }
 
-        return $this->request('POST', '/v1/subscriptions/'.$subscription->stripe_subscription_id, [
-            'trial_end' => $renewAt->getTimestamp(),
+        $subscription->loadMissing('plan');
+        $plan = $subscription->plan;
+        if (! $plan) {
+            throw new RuntimeException('The local subscription plan could not be loaded.');
+        }
+
+        $stripeSubscription = $this->retrieveSubscription($subscription->stripe_subscription_id);
+        $item = Arr::get($stripeSubscription, 'items.data.0');
+        if (! is_array($item)) {
+            throw new RuntimeException('Stripe subscription has no billable subscription item.');
+        }
+
+        $priceValue = $item['price'] ?? null;
+        $priceId = is_array($priceValue)
+            ? (string) ($priceValue['id'] ?? '')
+            : (string) ($priceValue ?? '');
+
+        if ($priceId === '') {
+            throw new RuntimeException('Stripe subscription item does not contain a reusable price ID.');
+        }
+
+        $quantity = max(1, (int) ($item['quantity'] ?? 1));
+        $renewAtTimestamp = $renewAt->getTimestamp();
+        if ($renewAtTimestamp <= time()) {
+            throw new RuntimeException('The requested subscription extension date must be in the future.');
+        }
+
+        $scheduleValue = $stripeSubscription['schedule'] ?? null;
+        $scheduleId = is_array($scheduleValue)
+            ? (string) ($scheduleValue['id'] ?? '')
+            : (string) ($scheduleValue ?? '');
+
+        if ($scheduleId === '') {
+            // A subscription being migrated to a schedule must not still be
+            // marked for end-of-period cancellation; the schedule owns that
+            // behavior from this point forward.
+            if ((bool) ($stripeSubscription['cancel_at_period_end'] ?? false)) {
+                $this->request('POST', '/v1/subscriptions/'.$subscription->stripe_subscription_id, [
+                    'cancel_at_period_end' => 'false',
+                ]);
+            }
+
+            $schedule = $this->request('POST', '/v1/subscription_schedules', [
+                'from_subscription' => $subscription->stripe_subscription_id,
+            ]);
+            $scheduleId = (string) ($schedule['id'] ?? '');
+
+            if ($scheduleId === '') {
+                throw new RuntimeException('Stripe did not return a subscription schedule ID.');
+            }
+        } else {
+            $schedule = $this->retrieveSubscriptionSchedule($scheduleId);
+        }
+
+        $currentPhase = is_array($schedule['current_phase'] ?? null)
+            ? $schedule['current_phase']
+            : [];
+
+        $currentStart = (int) ($currentPhase['start_date']
+            ?? $stripeSubscription['current_period_start']
+            ?? 0);
+        $currentEnd = (int) ($currentPhase['end_date']
+            ?? $stripeSubscription['current_period_end']
+            ?? 0);
+
+        if ($currentStart <= 0 || $currentEnd <= $currentStart) {
+            throw new RuntimeException('Stripe did not return a valid current subscription period.');
+        }
+
+        if ($renewAtTimestamp <= $currentEnd) {
+            return $schedule;
+        }
+
+        $interval = match ($plan->duration_unit) {
+            'days' => 'day',
+            'years' => 'year',
+            default => 'month',
+        };
+        $intervalCount = max(1, (int) $plan->duration_value);
+        $isCurrentlyTrialing = ($stripeSubscription['status'] ?? null) === 'trialing';
+
+        $payload = [
+            'end_behavior' => $subscription->auto_renew ? 'release' : 'cancel',
             'proration_behavior' => 'none',
-            'cancel_at_period_end' => 'false',
-        ]);
+            'metadata[company_id]' => (string) $subscription->company_id,
+            'metadata[local_subscription_id]' => (string) $subscription->id,
+        ];
+
+        if ($isCurrentlyTrialing) {
+            // When another extension is purchased while already inside the
+            // prepaid phase, simply lengthen that no-charge phase.
+            $payload['phases[0][start_date]'] = $currentStart;
+            $payload['phases[0][end_date]'] = $renewAtTimestamp;
+            $payload['phases[0][items][0][price]'] = $priceId;
+            $payload['phases[0][items][0][quantity]'] = $quantity;
+            $payload['phases[0][trial]'] = 'true';
+            $payload['phases[0][trial_end]'] = $renewAtTimestamp;
+            $payload['phases[0][proration_behavior]'] = 'none';
+
+            if ($subscription->auto_renew) {
+                $payload['phases[1][start_date]'] = $renewAtTimestamp;
+                $payload['phases[1][items][0][price]'] = $priceId;
+                $payload['phases[1][items][0][quantity]'] = $quantity;
+                $payload['phases[1][duration][interval]'] = $interval;
+                $payload['phases[1][duration][interval_count]'] = $intervalCount;
+                $payload['phases[1][proration_behavior]'] = 'none';
+            }
+        } else {
+            // Preserve the already-paid current period exactly as-is.
+            $payload['phases[0][start_date]'] = $currentStart;
+            $payload['phases[0][end_date]'] = $currentEnd;
+            $payload['phases[0][items][0][price]'] = $priceId;
+            $payload['phases[0][items][0][quantity]'] = $quantity;
+            $payload['phases[0][proration_behavior]'] = 'none';
+
+            // The prepaid extension is represented by a schedule trial phase;
+            // Stripe charges nothing during this phase because the extension
+            // was already paid through the one-time Checkout Session.
+            $payload['phases[1][start_date]'] = $currentEnd;
+            $payload['phases[1][end_date]'] = $renewAtTimestamp;
+            $payload['phases[1][items][0][price]'] = $priceId;
+            $payload['phases[1][items][0][quantity]'] = $quantity;
+            $payload['phases[1][trial]'] = 'true';
+            $payload['phases[1][trial_end]'] = $renewAtTimestamp;
+            $payload['phases[1][proration_behavior]'] = 'none';
+
+            if ($subscription->auto_renew) {
+                // Resume normal paid recurring billing at the extension end.
+                // After one ordinary cycle the schedule releases the
+                // subscription, which then continues recurring normally.
+                $payload['phases[2][start_date]'] = $renewAtTimestamp;
+                $payload['phases[2][items][0][price]'] = $priceId;
+                $payload['phases[2][items][0][quantity]'] = $quantity;
+                $payload['phases[2][duration][interval]'] = $interval;
+                $payload['phases[2][duration][interval_count]'] = $intervalCount;
+                $payload['phases[2][proration_behavior]'] = 'none';
+            }
+        }
+
+        return $this->request('POST', '/v1/subscription_schedules/'.$scheduleId, $payload);
+    }
+
+    public function retrieveSubscriptionSchedule(string $scheduleId): array
+    {
+        return $this->request('GET', '/v1/subscription_schedules/'.$scheduleId);
     }
 
     public function setAutoRenew(CompanySubscription $subscription, bool $enabled): void
