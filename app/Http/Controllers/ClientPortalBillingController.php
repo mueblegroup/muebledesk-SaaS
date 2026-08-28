@@ -10,6 +10,7 @@ use App\Services\StripePlatformBillingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use RuntimeException;
 use Throwable;
 
 class ClientPortalBillingController extends Controller
@@ -197,37 +198,45 @@ class ClientPortalBillingController extends Controller
         $sessionId = (string) ($session['id'] ?? '');
 
         if (! $subscription || ! $plan || ! $subscription->isActive() || (int) $subscription->platform_subscription_plan_id !== (int) $plan->id) {
+            throw new RuntimeException('The paid extension does not match an active local subscription.');
+        }
+
+        if ($sessionId === '') {
+            throw new RuntimeException('Stripe extension Checkout Session ID is missing.');
+        }
+
+        // Stripe can redirect the success URL more than once. Once this exact
+        // Checkout Session has been applied, do not extend the account again.
+        if ($subscription->stripe_checkout_session_id === $sessionId) {
             return;
         }
 
-        if ($sessionId !== '' && $subscription->stripe_checkout_session_id === $sessionId) {
-            return;
-        }
+        $this->validateExtensionPayment($company, $subscription, $plan, $session);
 
         $base = $subscription->expires_at && $subscription->expires_at->isFuture()
             ? $subscription->expires_at->copy()
             : now();
         $newExpiry = $plan->calculateExpiry($base);
 
-        if ($subscription->auto_renew && $subscription->stripe_subscription_id && $newExpiry) {
-            try {
-                $stripe->postponeRenewalTo($subscription, $newExpiry);
-            } catch (Throwable $exception) {
-                report($exception);
-                try {
-                    $stripe->setAutoRenew($subscription, false);
-                } catch (Throwable $fallbackException) {
-                    report($fallbackException);
-                }
-                $subscription->auto_renew = false;
-            }
+        if (! $newExpiry) {
+            throw new RuntimeException('The subscription plan did not produce a valid extension expiry date.');
         }
+
+        if (! $subscription->stripe_subscription_id) {
+            throw new RuntimeException('The active subscription is missing its Stripe subscription ID; the extension was not applied.');
+        }
+
+        // Stripe must accept the renewal schedule before the local entitlement
+        // is extended. If this call fails, the exception bubbles up and the
+        // local database remains unchanged.
+        $schedule = $stripe->postponeRenewalTo($subscription, $newExpiry);
+        $scheduleId = (string) ($schedule['id'] ?? '');
 
         $subscription->update([
             'status' => 'active',
             'is_enabled' => true,
             'expires_at' => $newExpiry,
-            'stripe_checkout_session_id' => $sessionId ?: $subscription->stripe_checkout_session_id,
+            'stripe_checkout_session_id' => $sessionId,
             'auto_renew' => (bool) $subscription->auto_renew,
             'renewal_failure_count' => 0,
             'last_renewal_error' => null,
@@ -242,8 +251,8 @@ class ClientPortalBillingController extends Controller
                 'provider_payment_id' => $session['payment_intent'] ?? null,
                 'provider_customer_id' => $session['customer'] ?? $subscription->stripe_customer_id,
                 'status' => 'paid',
-                'amount' => ((int) ($session['amount_total'] ?? 0)) / 100,
-                'currency' => strtoupper($session['currency'] ?? $plan->currency),
+                'amount' => ((int) $session['amount_total']) / 100,
+                'currency' => strtoupper((string) $session['currency']),
                 'description' => $plan->name.' extension',
                 'paid_at' => now(),
                 'failed_at' => null,
@@ -251,11 +260,53 @@ class ClientPortalBillingController extends Controller
                 'metadata' => [
                     'checkout_session_id' => $sessionId,
                     'purchase_type' => 'extension',
+                    'stripe_subscription_schedule_id' => $scheduleId ?: null,
                     'extended_from' => $base->toIso8601String(),
-                    'extended_until' => $newExpiry?->toIso8601String(),
+                    'extended_until' => $newExpiry->toIso8601String(),
                 ],
             ]
         );
+    }
+
+    private function validateExtensionPayment(Company $company, CompanySubscription $subscription, PlatformSubscriptionPlan $plan, array $session): void
+    {
+        if (($session['payment_status'] ?? null) !== 'paid') {
+            throw new RuntimeException('Stripe has not confirmed this extension payment as paid.');
+        }
+
+        if (($session['metadata']['purchase_type'] ?? null) !== 'extension') {
+            throw new RuntimeException('Stripe Checkout Session is not an extension purchase.');
+        }
+
+        if ((int) ($session['metadata']['company_id'] ?? 0) !== (int) $company->id
+            || (int) ($session['client_reference_id'] ?? 0) !== (int) $company->id) {
+            throw new RuntimeException('Stripe extension payment does not belong to this company.');
+        }
+
+        if ((int) ($session['metadata']['plan_id'] ?? 0) !== (int) $plan->id) {
+            throw new RuntimeException('Stripe extension payment does not match the selected plan.');
+        }
+
+        if ((int) ($session['metadata']['existing_subscription_id'] ?? 0) !== (int) $subscription->id) {
+            throw new RuntimeException('Stripe extension payment does not match the current subscription.');
+        }
+
+        if ($subscription->stripe_customer_id
+            && (string) ($session['customer'] ?? '') !== (string) $subscription->stripe_customer_id) {
+            throw new RuntimeException('Stripe extension payment customer does not match the subscription customer.');
+        }
+
+        $expectedAmount = (int) round(((float) $plan->price) * 100);
+        $actualAmount = (int) ($session['amount_total'] ?? -1);
+        if ($expectedAmount <= 0 || $actualAmount !== $expectedAmount) {
+            throw new RuntimeException('Stripe extension payment amount does not match the plan price; the subscription was not extended.');
+        }
+
+        $expectedCurrency = strtolower((string) $plan->currency);
+        $actualCurrency = strtolower((string) ($session['currency'] ?? ''));
+        if ($actualCurrency === '' || $actualCurrency !== $expectedCurrency) {
+            throw new RuntimeException('Stripe extension payment currency does not match the plan currency; the subscription was not extended.');
+        }
     }
 
     private function syncFromStripe(CompanySubscription $record, array $subscription): void
