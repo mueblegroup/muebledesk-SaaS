@@ -9,6 +9,7 @@ use App\Models\SubscriptionPayment;
 use App\Services\StripePlatformBillingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 use RuntimeException;
 use Throwable;
@@ -21,16 +22,13 @@ class ClientPortalBillingController extends Controller
     {
         $this->authorizeCompany($request, $company);
 
-        $company->load('subscription.plan');
+        $company->load('subscription.plan', 'subscription.pendingPlan');
         $subscription = $company->subscription;
 
-        // Refresh Stripe state whenever the billing page is opened. Webhooks are
-        // still the primary synchronization mechanism, but this protects the UI
-        // from stale renewal/cancellation state if a webhook was delayed.
         if ($subscription?->stripe_subscription_id) {
             try {
                 $this->syncFromStripe($subscription, $stripe->retrieveSubscription($subscription->stripe_subscription_id));
-                $company->load('subscription.plan');
+                $company->load('subscription.plan', 'subscription.pendingPlan');
             } catch (Throwable $exception) {
                 report($exception);
             }
@@ -50,40 +48,137 @@ class ClientPortalBillingController extends Controller
         $this->authorizeCompany($request, $company, ownerOnly: true);
         abort_unless($plan->is_active, 404);
 
-        $company->load('subscription.plan');
-        $subscription = $company->subscription;
+        try {
+            return Cache::lock('platform-subscription-checkout:'.$company->id, 30)->block(5, function () use ($request, $company, $plan, $stripe): RedirectResponse {
+                $company->load('subscription.plan', 'subscription.pendingPlan');
+                $subscription = $company->subscription;
+
+                if ($subscription?->isActive()) {
+                    return back()->with('info', 'Your current subscription is active. Choose Upgrade or Change at renewal instead of purchasing a second subscription.');
+                }
+
+                if ($this->hasRecoverableStripeSubscription($subscription)) {
+                    return back()->with('error', 'An existing Stripe subscription still requires billing attention. Please use Payment settings before purchasing another plan.');
+                }
+
+                $autoRenew = $request->boolean('auto_renew', $plan->auto_renew_default);
+                $session = $stripe->createCheckoutSession(
+                    $company,
+                    $plan,
+                    $autoRenew,
+                    route('client-portal.billing.success', $company),
+                    route('client-portal.billing.index', $company)
+                );
+
+                return redirect()->away($session['url']);
+            });
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return back()->with('error', $exception->getMessage());
+        }
+    }
+
+    public function changePlan(Request $request, Company $company, PlatformSubscriptionPlan $plan, StripePlatformBillingService $stripe): RedirectResponse
+    {
+        $this->authorizeCompany($request, $company, ownerOnly: true);
+        abort_unless($plan->is_active, 404);
 
         try {
-            if ($subscription?->isActive()) {
-                return back()->with(
-                    'info',
-                    $subscription->auto_renew
-                        ? 'Your current subscription is already active and will renew automatically. No additional payment is required.'
-                        : 'Your current subscription remains active until the end of its paid period. You can manage it from Payment settings.'
-                );
-            }
+            return Cache::lock('platform-plan-change:'.$company->id, 45)->block(5, function () use ($company, $plan, $stripe): RedirectResponse {
+                $company->load('subscription.plan', 'subscription.pendingPlan');
+                $subscription = $company->subscription;
 
-            // past_due, unpaid, paused, and other non-terminal Stripe states are
-            // billing-recovery states, not permission to create a second
-            // subscription. The customer must resolve the existing Stripe
-            // subscription first.
-            if ($this->hasRecoverableStripeSubscription($subscription)) {
-                return back()->with(
-                    'error',
-                    'An existing Stripe subscription still requires billing attention. Please use Payment settings to resolve it before purchasing another plan.'
-                );
-            }
+                if (! $subscription?->isActive() || ! $subscription->stripe_subscription_id || ! $subscription->plan) {
+                    return back()->with('error', 'An active Stripe subscription is required before changing plans.');
+                }
 
-            $autoRenew = $request->boolean('auto_renew', $plan->auto_renew_default);
-            $session = $stripe->createCheckoutSession(
-                $company,
-                $plan,
-                $autoRenew,
-                route('client-portal.billing.success', $company),
-                route('client-portal.billing.index', $company)
-            );
+                if ($subscription->pending_platform_subscription_plan_id) {
+                    return back()->with('error', 'A plan change is already pending. Complete or cancel it before choosing another plan.');
+                }
 
-            return redirect()->away($session['url']);
+                if ((int) $subscription->platform_subscription_plan_id === (int) $plan->id) {
+                    return back()->with('info', 'This is already your current plan.');
+                }
+
+                if (strtoupper((string) $subscription->plan->currency) !== strtoupper((string) $plan->currency)) {
+                    return back()->with('error', 'Plan changes cannot switch billing currency on an existing subscription.');
+                }
+
+                $direction = $plan->tierDirectionComparedTo($subscription->plan);
+                if ($direction === null || $direction === 0) {
+                    return back()->with('error', 'These plans do not have an unambiguous upgrade/downgrade order. Set Billing rank in Superadmin before allowing this change.');
+                }
+
+                $immediateUpgrade = $direction > 0 && $plan->sameBillingIntervalAs($subscription->plan);
+
+                if ($immediateUpgrade) {
+                    $result = $stripe->upgradeSubscription($subscription, $plan);
+
+                    if (! ($result['applied'] ?? false)) {
+                        $subscription->update([
+                            'pending_platform_subscription_plan_id' => $plan->id,
+                            'pending_plan_effective_at' => null,
+                        ]);
+
+                        if (! empty($result['invoice_url'])) {
+                            return redirect()->away($result['invoice_url']);
+                        }
+
+                        return back()->with('warning', 'Stripe created the prorated upgrade invoice, but payment is still required. Your current plan remains active until payment succeeds.');
+                    }
+
+                    $this->syncFromStripe($subscription, $result['subscription'], $plan);
+
+                    return back()->with('success', 'Upgrade completed. Stripe charged the prorated difference and the higher plan is active now.');
+                }
+
+                if (! $subscription->auto_renew) {
+                    return back()->with('error', 'Auto-renewal is disabled. Re-enable it before scheduling a different plan for the next billing period.');
+                }
+
+                $result = $stripe->schedulePlanChangeAtPeriodEnd($subscription, $plan);
+                $subscription->update([
+                    'pending_platform_subscription_plan_id' => $plan->id,
+                    'pending_plan_effective_at' => now()->setTimestamp((int) $result['effective_at']),
+                    'stripe_subscription_schedule_id' => $result['schedule_id'],
+                ]);
+
+                $message = $direction < 0
+                    ? 'Downgrade scheduled. Your current plan remains active until the next renewal date.'
+                    : 'Plan change scheduled for the next renewal because the billing interval is changing.';
+
+                return back()->with('success', $message);
+            });
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return back()->with('error', $exception->getMessage());
+        }
+    }
+
+    public function cancelScheduledPlanChange(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
+    {
+        $this->authorizeCompany($request, $company, ownerOnly: true);
+        $company->load('subscription.pendingPlan');
+        $subscription = $company->subscription;
+
+        if (! $subscription?->pending_platform_subscription_plan_id || ! $subscription->pending_plan_effective_at) {
+            return back()->with('info', 'There is no scheduled future plan change to cancel.');
+        }
+
+        try {
+            Cache::lock('platform-plan-change:'.$company->id, 45)->block(5, function () use ($subscription, $stripe): void {
+                $subscription->refresh();
+                $stripe->cancelScheduledPlanChange($subscription);
+                $subscription->update([
+                    'pending_platform_subscription_plan_id' => null,
+                    'pending_plan_effective_at' => null,
+                    'stripe_subscription_schedule_id' => null,
+                ]);
+            });
+
+            return back()->with('success', 'Scheduled plan change canceled. Your current subscription will continue unchanged.');
         } catch (Throwable $exception) {
             report($exception);
 
@@ -100,9 +195,6 @@ class ClientPortalBillingController extends Controller
             try {
                 $session = $stripe->retrieveCheckoutSession($sessionId);
 
-                // Manual prepaid extensions are intentionally no longer part of
-                // the billing model. Never mutate local entitlement from an old
-                // extension Checkout Session.
                 if (($session['metadata']['purchase_type'] ?? null) === 'extension') {
                     return redirect()->route('client-portal.billing.index', $company)
                         ->with('warning', 'Subscription extensions are no longer supported. Your existing subscription remains unchanged.');
@@ -159,30 +251,26 @@ class ClientPortalBillingController extends Controller
             throw new RuntimeException('Stripe did not return a subscription ID for this paid Checkout Session.');
         }
 
-        $startsAt = isset($subscriptionData['current_period_start'])
-            ? now()->setTimestamp($subscriptionData['current_period_start'])
-            : now();
-        $remoteEnd = isset($subscriptionData['current_period_end'])
-            ? now()->setTimestamp($subscriptionData['current_period_end'])
-            : null;
+        $startsAt = isset($subscriptionData['current_period_start']) ? now()->setTimestamp($subscriptionData['current_period_start']) : now();
+        $remoteEnd = isset($subscriptionData['current_period_end']) ? now()->setTimestamp($subscriptionData['current_period_end']) : null;
         $expiresAt = $remoteEnd ?? $plan->calculateExpiry($startsAt);
 
         $subscription = CompanySubscription::updateOrCreate(
             ['company_id' => $company->id],
             [
                 'platform_subscription_plan_id' => $plan->id,
+                'pending_platform_subscription_plan_id' => null,
+                'pending_plan_effective_at' => null,
                 'status' => (string) ($subscriptionData['status'] ?? 'active'),
-                'seats' => max(1, (int) ($session['metadata']['seats'] ?? 1)),
                 'is_enabled' => true,
                 'auto_renew' => ! (bool) ($subscriptionData['cancel_at_period_end'] ?? false),
                 'starts_at' => $startsAt,
                 'expires_at' => $expiresAt,
                 'current_period_starts_at' => $startsAt,
                 'current_period_ends_at' => $remoteEnd,
-                'stripe_customer_id' => is_array($session['customer'] ?? null)
-                    ? ($session['customer']['id'] ?? null)
-                    : ($session['customer'] ?? null),
+                'stripe_customer_id' => $this->stripeId($session['customer'] ?? null),
                 'stripe_subscription_id' => $subscriptionId,
+                'stripe_subscription_schedule_id' => null,
                 'stripe_checkout_session_id' => $session['id'] ?? null,
                 'renewal_failure_count' => 0,
                 'last_renewal_error' => null,
@@ -195,12 +283,8 @@ class ClientPortalBillingController extends Controller
                 'company_id' => $company->id,
                 'company_subscription_id' => $subscription->id,
                 'platform_subscription_plan_id' => $plan->id,
-                'provider_payment_id' => is_array($session['payment_intent'] ?? null)
-                    ? ($session['payment_intent']['id'] ?? null)
-                    : ($session['payment_intent'] ?? null),
-                'provider_customer_id' => is_array($session['customer'] ?? null)
-                    ? ($session['customer']['id'] ?? null)
-                    : ($session['customer'] ?? null),
+                'provider_payment_id' => $this->stripeId($session['payment_intent'] ?? null),
+                'provider_customer_id' => $this->stripeId($session['customer'] ?? null),
                 'status' => 'paid',
                 'amount' => ((int) ($session['amount_total'] ?? 0)) / 100,
                 'currency' => strtoupper((string) ($session['currency'] ?? $plan->currency)),
@@ -223,9 +307,8 @@ class ClientPortalBillingController extends Controller
             throw new RuntimeException('Stripe Checkout Session is not a subscription purchase.');
         }
 
-        $metadataCompanyId = (int) ($session['metadata']['company_id'] ?? 0);
-        $referenceCompanyId = (int) ($session['client_reference_id'] ?? 0);
-        if ($metadataCompanyId !== (int) $company->id || $referenceCompanyId !== (int) $company->id) {
+        if ((int) ($session['metadata']['company_id'] ?? 0) !== (int) $company->id
+            || (int) ($session['client_reference_id'] ?? 0) !== (int) $company->id) {
             throw new RuntimeException('Stripe subscription payment does not belong to this company.');
         }
 
@@ -255,21 +338,21 @@ class ClientPortalBillingController extends Controller
         return ! in_array((string) $subscription->status, self::TERMINAL_SUBSCRIPTION_STATUSES, true);
     }
 
-    private function syncFromStripe(CompanySubscription $record, array $subscription): void
+    private function syncFromStripe(CompanySubscription $record, array $subscription, ?PlatformSubscriptionPlan $knownPlan = null): void
     {
         $status = (string) ($subscription['status'] ?? $record->status);
-        $start = isset($subscription['current_period_start'])
-            ? now()->setTimestamp($subscription['current_period_start'])
-            : $record->starts_at;
-        $remoteEnd = isset($subscription['current_period_end'])
-            ? now()->setTimestamp($subscription['current_period_end'])
-            : null;
+        $start = isset($subscription['current_period_start']) ? now()->setTimestamp($subscription['current_period_start']) : $record->starts_at;
+        $remoteEnd = isset($subscription['current_period_end']) ? now()->setTimestamp($subscription['current_period_end']) : null;
+        $priceId = $this->subscriptionPriceId($subscription);
+        $resolvedPlan = $knownPlan
+            ?? ($priceId !== '' ? PlatformSubscriptionPlan::where('stripe_price_id', $priceId)->first() : null)
+            ?? PlatformSubscriptionPlan::find((int) ($subscription['metadata']['plan_id'] ?? 0));
+        $pendingPlanId = $record->pending_platform_subscription_plan_id;
+        $hasRemotePendingUpdate = ! empty($subscription['pending_update']);
 
-        $record->update([
+        $updates = [
             'status' => $status,
-            'stripe_customer_id' => is_array($subscription['customer'] ?? null)
-                ? ($subscription['customer']['id'] ?? $record->stripe_customer_id)
-                : ($subscription['customer'] ?? $record->stripe_customer_id),
+            'stripe_customer_id' => $this->stripeId($subscription['customer'] ?? null) ?: $record->stripe_customer_id,
             'stripe_subscription_id' => $subscription['id'] ?? $record->stripe_subscription_id,
             'starts_at' => $start,
             'expires_at' => $remoteEnd ?? $record->expires_at,
@@ -279,15 +362,44 @@ class ClientPortalBillingController extends Controller
             'is_enabled' => ! in_array($status, ['canceled', 'unpaid', 'incomplete_expired', 'paused'], true),
             'cancel_at' => isset($subscription['cancel_at']) ? now()->setTimestamp($subscription['cancel_at']) : null,
             'canceled_at' => isset($subscription['canceled_at']) ? now()->setTimestamp($subscription['canceled_at']) : null,
-        ]);
+        ];
+
+        if ($resolvedPlan) {
+            $updates['platform_subscription_plan_id'] = $resolvedPlan->id;
+        }
+
+        if ($pendingPlanId && $resolvedPlan && (int) $pendingPlanId === (int) $resolvedPlan->id) {
+            $updates['pending_platform_subscription_plan_id'] = null;
+            $updates['pending_plan_effective_at'] = null;
+        } elseif ($pendingPlanId && ! $record->pending_plan_effective_at && ! $hasRemotePendingUpdate) {
+            // A pending immediate upgrade expired/failed without being applied.
+            $updates['pending_platform_subscription_plan_id'] = null;
+        }
+
+        $record->update($updates);
+    }
+
+    private function subscriptionPriceId(array $subscription): string
+    {
+        $price = data_get($subscription, 'items.data.0.price');
+
+        return is_array($price) ? (string) ($price['id'] ?? '') : (string) ($price ?? '');
+    }
+
+    private function stripeId(mixed $value): ?string
+    {
+        if (is_array($value)) {
+            $value = $value['id'] ?? null;
+        }
+
+        $value = is_scalar($value) ? (string) $value : '';
+
+        return $value !== '' ? $value : null;
     }
 
     private function authorizeCompany(Request $request, Company $company, bool $ownerOnly = false): void
     {
-        $membership = $request->user()->companies()
-            ->whereKey($company->id)
-            ->first();
-
+        $membership = $request->user()->companies()->whereKey($company->id)->first();
         abort_unless($membership, 403);
 
         if ($ownerOnly) {
