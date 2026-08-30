@@ -89,7 +89,7 @@ class ClientPortalBillingController extends Controller
                 }
 
                 if ($subscription->pending_platform_subscription_plan_id) {
-                    return back()->with('error', 'A plan change is already pending. Complete or cancel it before choosing another plan.');
+                    return back()->with('error', 'A plan change is already pending. Cancel it before choosing another plan.');
                 }
 
                 if ((int) $subscription->platform_subscription_plan_id === (int) $plan->id) {
@@ -105,9 +105,11 @@ class ClientPortalBillingController extends Controller
                     return back()->with('error', 'These plans do not have an unambiguous upgrade/downgrade order. Set Billing rank in Superadmin before allowing this change.');
                 }
 
-                $immediateUpgrade = $direction > 0 && $plan->sameBillingIntervalAs($subscription->plan);
+                if (! $plan->sameBillingIntervalAs($subscription->plan)) {
+                    return back()->with('error', 'Changing billing intervals on an active subscription is currently disabled for safety. Cancel at period end, then purchase the new billing interval after this paid period finishes.');
+                }
 
-                if ($immediateUpgrade) {
+                if ($direction > 0) {
                     $result = $stripe->upgradeSubscription($subscription, $plan);
 
                     if (! ($result['applied'] ?? false)) {
@@ -124,25 +126,21 @@ class ClientPortalBillingController extends Controller
                     }
 
                     $this->syncFromStripe($subscription, $result['subscription'], $plan);
-                    return back()->with('success', 'Upgrade completed. Stripe charged the prorated difference and the higher plan is active now.');
+                    return back()->with('success', 'Upgrade completed. Stripe confirmed the higher recurring price and the upgraded plan is active now.');
                 }
 
                 if (! $subscription->auto_renew) {
-                    return back()->with('error', 'Auto-renewal is disabled. Re-enable it before scheduling a different plan for the next billing period.');
+                    return back()->with('error', 'This subscription is already set to end at the current period. Resume it before choosing a lower recurring plan.');
                 }
 
-                $result = $stripe->schedulePlanChangeAtPeriodEnd($subscription, $plan);
+                $result = $stripe->deferDowngrade($subscription, $plan);
                 $subscription->update([
                     'pending_platform_subscription_plan_id' => $plan->id,
                     'pending_plan_effective_at' => now()->setTimestamp((int) $result['effective_at']),
-                    'stripe_subscription_schedule_id' => $result['schedule_id'],
+                    'stripe_subscription_schedule_id' => null,
                 ]);
 
-                $message = $direction < 0
-                    ? 'Downgrade scheduled. Your current plan remains active until the next renewal date.'
-                    : 'Plan change scheduled for the next renewal because the billing interval is changing.';
-
-                return back()->with('success', $message);
+                return back()->with('success', 'Downgrade saved in Stripe. There is no immediate charge or refund; your current plan remains available until the next renewal, when the lower plan takes effect.');
             });
         } catch (Throwable $exception) {
             report($exception);
@@ -150,33 +148,78 @@ class ClientPortalBillingController extends Controller
         }
     }
 
-    public function cancelScheduledPlanChange(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
+    public function cancelPendingPlanChange(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
     {
         $this->authorizeCompany($request, $company, ownerOnly: true);
-        $company->load('subscription.pendingPlan');
+        $company->load('subscription.plan', 'subscription.pendingPlan');
         $subscription = $company->subscription;
 
-        if (! $subscription?->stripe_subscription_id) {
-            return back()->with('info', 'There is no Stripe subscription schedule to cancel.');
+        if (! $subscription?->stripe_subscription_id || ! $subscription->pending_platform_subscription_plan_id) {
+            return back()->with('info', 'There is no pending plan change to cancel.');
         }
 
         try {
-            $released = Cache::lock('platform-plan-change:'.$company->id, 45)->block(5, function () use ($subscription, $stripe): bool {
-                $subscription->refresh();
-                $released = $stripe->cancelScheduledPlanChange($subscription);
-
+            Cache::lock('platform-plan-change:'.$company->id, 45)->block(5, function () use ($subscription, $stripe): void {
+                $subscription->refresh()->load('plan');
+                $stripe->cancelDeferredPlanChange($subscription);
                 $subscription->update([
                     'pending_platform_subscription_plan_id' => null,
                     'pending_plan_effective_at' => null,
                     'stripe_subscription_schedule_id' => null,
                 ]);
-
-                return $released;
             });
 
+            return back()->with('success', 'Pending plan change canceled. Stripe was restored to the current plan price.');
+        } catch (Throwable $exception) {
+            report($exception);
+            return back()->with('error', $exception->getMessage());
+        }
+    }
+
+    public function clearLegacySchedule(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
+    {
+        $this->authorizeCompany($request, $company, ownerOnly: true);
+        $company->load('subscription');
+        $subscription = $company->subscription;
+
+        if (! $subscription?->stripe_subscription_id) {
+            return back()->with('info', 'There is no Stripe subscription to inspect.');
+        }
+
+        try {
+            $released = $stripe->cancelScheduledPlanChange($subscription);
+            $subscription->update(['stripe_subscription_schedule_id' => null]);
+
             return $released
-                ? back()->with('success', 'Scheduled Stripe change canceled. Your current subscription will continue unchanged.')
-                : back()->with('info', 'Stripe no longer has a future schedule attached to this subscription. Local schedule state was cleared.');
+                ? back()->with('success', 'Legacy Stripe schedule cleared. The subscription itself remains active.')
+                : back()->with('info', 'No legacy Stripe schedule is attached.');
+        } catch (Throwable $exception) {
+            report($exception);
+            return back()->with('error', $exception->getMessage());
+        }
+    }
+
+    public function setSubscriptionCancellation(Request $request, Company $company, StripePlatformBillingService $stripe, bool $cancel): RedirectResponse
+    {
+        $this->authorizeCompany($request, $company, ownerOnly: true);
+        $company->load('subscription');
+        $subscription = $company->subscription;
+
+        if (! $subscription?->stripe_subscription_id) {
+            return back()->with('error', 'There is no Stripe subscription to update.');
+        }
+
+        if ($cancel && $subscription->pending_platform_subscription_plan_id) {
+            return back()->with('error', 'Cancel the pending plan change first, then cancel the subscription.');
+        }
+
+        try {
+            $remote = Cache::lock('platform-subscription-cancel:'.$company->id, 30)->block(5, fn () => $stripe->setCancelAtPeriodEnd($subscription, $cancel));
+            $this->syncFromStripe($subscription, $remote);
+
+            return $cancel
+                ? back()->with('success', 'Subscription cancellation scheduled. You keep access through the current paid period and Stripe will not renew it afterward.')
+                : back()->with('success', 'Subscription resumed. Automatic renewal is enabled again.');
         } catch (Throwable $exception) {
             report($exception);
             return back()->with('error', $exception->getMessage());
@@ -215,10 +258,17 @@ class ClientPortalBillingController extends Controller
     {
         $this->authorizeCompany($request, $company, ownerOnly: true);
 
-        if ($request->input('billing_action') === 'cancel_schedule') {
-            return $this->cancelScheduledPlanChange($request, $company, $stripe);
-        }
+        return match ((string) $request->input('billing_action')) {
+            'cancel_plan_change' => $this->cancelPendingPlanChange($request, $company, $stripe),
+            'clear_legacy_schedule' => $this->clearLegacySchedule($request, $company, $stripe),
+            'cancel_subscription' => $this->setSubscriptionCancellation($request, $company, $stripe, true),
+            'resume_subscription' => $this->setSubscriptionCancellation($request, $company, $stripe, false),
+            default => $this->openBillingPortal($company, $stripe),
+        };
+    }
 
+    private function openBillingPortal(Company $company, StripePlatformBillingService $stripe): RedirectResponse
+    {
         $company->load('subscription');
 
         try {
@@ -346,9 +396,15 @@ class ClientPortalBillingController extends Controller
         $resolvedPlan = $knownPlan
             ?? ($priceId !== '' ? PlatformSubscriptionPlan::where('stripe_price_id', $priceId)->first() : null)
             ?? PlatformSubscriptionPlan::find((int) ($subscription['metadata']['plan_id'] ?? 0));
-        $pendingPlanId = $record->pending_platform_subscription_plan_id;
+        $pendingPlanId = (int) ($record->pending_platform_subscription_plan_id ?? 0);
+        $pendingEffectiveAt = $record->pending_plan_effective_at;
         $hasRemotePendingUpdate = ! empty($subscription['pending_update']);
         $remoteScheduleId = $this->stripeId($subscription['schedule'] ?? null);
+        $deferredPlanStillPending = $pendingPlanId > 0
+            && $pendingEffectiveAt
+            && $pendingEffectiveAt->isFuture()
+            && $resolvedPlan
+            && (int) $resolvedPlan->id === $pendingPlanId;
 
         $updates = [
             'status' => $status,
@@ -365,20 +421,15 @@ class ClientPortalBillingController extends Controller
             'canceled_at' => isset($subscription['canceled_at']) ? now()->setTimestamp($subscription['canceled_at']) : null,
         ];
 
-        if ($resolvedPlan) {
+        if ($resolvedPlan && ! $deferredPlanStillPending) {
             $updates['platform_subscription_plan_id'] = $resolvedPlan->id;
         }
 
-        if ($pendingPlanId && $resolvedPlan && (int) $pendingPlanId === (int) $resolvedPlan->id) {
+        if ($pendingPlanId > 0 && $resolvedPlan && (int) $resolvedPlan->id === $pendingPlanId && ! $deferredPlanStillPending) {
             $updates['pending_platform_subscription_plan_id'] = null;
             $updates['pending_plan_effective_at'] = null;
-        } elseif ($pendingPlanId && ! $record->pending_plan_effective_at && ! $hasRemotePendingUpdate) {
+        } elseif ($pendingPlanId > 0 && ! $pendingEffectiveAt && ! $hasRemotePendingUpdate) {
             $updates['pending_platform_subscription_plan_id'] = null;
-        }
-
-        if (! $remoteScheduleId && $record->pending_plan_effective_at) {
-            $updates['pending_platform_subscription_plan_id'] = null;
-            $updates['pending_plan_effective_at'] = null;
         }
 
         $record->update($updates);
