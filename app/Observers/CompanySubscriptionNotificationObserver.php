@@ -45,11 +45,11 @@ class CompanySubscriptionNotificationObserver
                 app(BillingActivityNotifier::class)->notifyOwners(
                     $company,
                     'Plan change scheduled — '.$company->name,
-                    'A future subscription plan change has been scheduled for your MuebleDesk workspace.',
+                    'A future subscription plan change has been saved for your MuebleDesk workspace.',
                     [
                         'Current plan' => $subscription->plan?->name ?? 'Current plan',
-                        'Scheduled plan' => $pendingPlan->name,
-                        'Scheduled price' => strtoupper((string) $pendingPlan->currency).' '.number_format((float) $pendingPlan->price, 2),
+                        'Next plan' => $pendingPlan->name,
+                        'Next price' => strtoupper((string) $pendingPlan->currency).' '.number_format((float) $pendingPlan->price, 2),
                         'Effective at' => $subscription->pending_plan_effective_at->timezone($company->timezone ?: config('app.timezone'))->format('d M Y H:i T'),
                     ]
                 );
@@ -57,23 +57,34 @@ class CompanySubscriptionNotificationObserver
         }
 
         $oldPendingPlanId = (int) ($subscription->getOriginal('pending_platform_subscription_plan_id') ?? 0);
-        $oldScheduleId = (string) ($subscription->getOriginal('stripe_subscription_schedule_id') ?? '');
-
         if ($subscription->wasChanged('pending_platform_subscription_plan_id')
             && $oldPendingPlanId > 0
             && ! $subscription->pending_platform_subscription_plan_id
-            && $oldScheduleId !== ''
-            && ! $subscription->stripe_subscription_schedule_id
             && ! $subscription->wasChanged('platform_subscription_plan_id')) {
             $oldPendingPlan = PlatformSubscriptionPlan::find($oldPendingPlanId);
 
             app(BillingActivityNotifier::class)->notifyOwners(
                 $company,
-                'Scheduled plan change canceled — '.$company->name,
-                'The previously scheduled subscription plan change was canceled. Your current plan remains unchanged.',
+                'Pending plan change canceled — '.$company->name,
+                'The pending subscription plan change was canceled and your current plan will continue.',
                 [
                     'Current plan' => $subscription->plan?->name ?? 'Current plan',
                     'Canceled change' => $oldPendingPlan?->name,
+                ]
+            );
+        }
+
+        if ($subscription->wasChanged('auto_renew') && in_array((string) $subscription->status, ['active', 'trialing', 'past_due'], true)) {
+            $autoRenew = (bool) $subscription->auto_renew;
+            app(BillingActivityNotifier::class)->notifyOwners(
+                $company,
+                $autoRenew ? 'Subscription resumed — '.$company->name : 'Subscription cancellation scheduled — '.$company->name,
+                $autoRenew
+                    ? 'Automatic renewal has been re-enabled for your MuebleDesk subscription.'
+                    : 'Your MuebleDesk subscription is set to end after the current paid period. No further automatic renewal will occur unless you resume it.',
+                [
+                    'Plan' => $subscription->plan?->name ?? 'Subscription plan',
+                    $autoRenew ? 'Next renewal' : 'Access through' => ($subscription->current_period_ends_at ?? $subscription->expires_at)?->timezone($company->timezone ?: config('app.timezone'))->format('d M Y H:i T'),
                 ]
             );
         }
