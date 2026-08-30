@@ -21,7 +21,7 @@
             : ucfirst(str_replace('_', ' ', $subscription?->status ?? ''));
         $periodEnd = $subscription?->current_period_ends_at ?? $subscription?->expires_at;
         $pendingPlan = $subscription?->pendingPlan;
-        $hasStripeSchedule = filled($subscription?->stripe_subscription_schedule_id);
+        $hasLegacyStripeSchedule = filled($subscription?->stripe_subscription_schedule_id);
     @endphp
 
     <div class="space-y-7">
@@ -39,20 +39,22 @@
                                 <p class="mt-1 text-sm text-slate-600">{{ $displayStatus }} · Next renewal {{ $periodEnd?->format('d M Y H:i') ?? '—' }}</p>
                             @else
                                 <p class="mt-1 text-sm text-slate-600">{{ $displayStatus }} · Active until {{ $periodEnd?->format('d M Y H:i') ?? '—' }}</p>
-                                <p class="mt-2 text-xs text-indigo-700">Auto-renewal is disabled. You keep access for the full paid period.</p>
+                                <p class="mt-2 text-xs text-indigo-700">Cancellation is scheduled in Stripe. You keep access through the full paid period and there will be no automatic renewal.</p>
                             @endif
 
                             @if($pendingPlan)
                                 <div class="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                                     @if($subscription->pending_plan_effective_at)
-                                        <span class="font-bold">{{ $pendingPlan->name }}</span> is scheduled for {{ $subscription->pending_plan_effective_at->format('d M Y H:i') }}. Your current plan remains unchanged until then.
+                                        <span class="font-bold">{{ $pendingPlan->name }}</span> will become your plan on {{ $subscription->pending_plan_effective_at->format('d M Y H:i') }}. Stripe already has the future recurring price; your current-plan access remains unchanged until then.
                                     @else
                                         Upgrade to <span class="font-bold">{{ $pendingPlan->name }}</span> is awaiting Stripe payment confirmation. Your current plan remains active until payment succeeds.
                                     @endif
                                 </div>
-                            @elseif($hasStripeSchedule)
+                            @endif
+
+                            @if($hasLegacyStripeSchedule)
                                 <div class="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                                    Stripe reports a future subscription schedule on this account. Cancel it before starting another immediate upgrade.
+                                    A legacy Stripe subscription schedule from the previous billing flow is still attached. Clear it before changing plans or cancellation state.
                                 </div>
                             @endif
                         @elseif($hasRecoverableStripeSubscription)
@@ -66,12 +68,36 @@
                     </div>
 
                     <div class="flex flex-wrap gap-3">
-                        @if($hasStripeSchedule && $subscription->stripe_subscription_id)
-                            <form method="POST" action="{{ route('client-portal.billing.portal', $company) }}" onsubmit="return confirm('Cancel the future Stripe subscription change? Your current subscription will continue unchanged.');">
+                        @if($pendingPlan && $subscription->pending_plan_effective_at)
+                            <form method="POST" action="{{ route('client-portal.billing.portal', $company) }}" onsubmit="return confirm('Cancel the pending plan change and restore the current recurring price in Stripe?');">
                                 @csrf
-                                <input type="hidden" name="billing_action" value="cancel_schedule">
-                                <button class="rounded-2xl border border-amber-300 bg-white px-5 py-3 text-sm font-bold text-amber-700">Cancel scheduled change</button>
+                                <input type="hidden" name="billing_action" value="cancel_plan_change">
+                                <button class="rounded-2xl border border-amber-300 bg-white px-5 py-3 text-sm font-bold text-amber-700">Cancel plan change</button>
                             </form>
+                        @endif
+
+                        @if($hasLegacyStripeSchedule)
+                            <form method="POST" action="{{ route('client-portal.billing.portal', $company) }}" onsubmit="return confirm('Clear the legacy Stripe subscription schedule? The active subscription itself will remain unchanged.');">
+                                @csrf
+                                <input type="hidden" name="billing_action" value="clear_legacy_schedule">
+                                <button class="rounded-2xl border border-amber-300 bg-white px-5 py-3 text-sm font-bold text-amber-700">Clear legacy schedule</button>
+                            </form>
+                        @endif
+
+                        @if($activeSubscription && !$hasLegacyStripeSchedule && !$pendingPlan)
+                            @if($subscription->auto_renew)
+                                <form method="POST" action="{{ route('client-portal.billing.portal', $company) }}" onsubmit="return confirm('Cancel this subscription at the end of the current paid period? You will keep access until then.');">
+                                    @csrf
+                                    <input type="hidden" name="billing_action" value="cancel_subscription">
+                                    <button class="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700">Cancel subscription</button>
+                                </form>
+                            @else
+                                <form method="POST" action="{{ route('client-portal.billing.portal', $company) }}">
+                                    @csrf
+                                    <input type="hidden" name="billing_action" value="resume_subscription">
+                                    <button class="rounded-2xl border border-indigo-300 bg-white px-5 py-3 text-sm font-bold text-indigo-700">Resume subscription</button>
+                                </form>
+                            @endif
                         @endif
 
                         @if($subscription->stripe_customer_id)
@@ -85,10 +111,10 @@
             </section>
         @endif
 
-        @if($activeSubscription && !$pendingPlan && !$hasStripeSchedule)
+        @if($activeSubscription && !$pendingPlan && !$hasLegacyStripeSchedule)
             <div class="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600">
-                <span class="font-bold text-slate-900">Plan changes:</span>
-                same-cycle upgrades take effect immediately and Stripe charges only the prorated difference. Downgrades — and changes to a different billing interval — start at the next renewal so you keep everything already paid for.
+                <span class="font-bold text-slate-900">Simple billing rules:</span>
+                same-interval upgrades take effect immediately with Stripe proration. Same-interval downgrades keep your current access until renewal and use the lower Stripe price on the next invoice. Different billing intervals are not changed mid-subscription.
             </div>
         @endif
 
@@ -101,13 +127,14 @@
                     $direction = $activeSubscription?->plan ? $plan->tierDirectionComparedTo($activeSubscription->plan) : null;
                     $sameInterval = $activeSubscription?->plan ? $plan->sameBillingIntervalAs($activeSubscription->plan) : false;
                     $isImmediateUpgrade = $activeSubscription && $direction === 1 && $sameInterval;
-                    $isScheduledChange = $activeSubscription && $direction !== null && $direction !== 0 && !$isImmediateUpgrade;
+                    $isDeferredDowngrade = $activeSubscription && $direction === -1 && $sameInterval;
+                    $isDifferentInterval = $activeSubscription && $direction !== null && $direction !== 0 && !$sameInterval;
                 @endphp
 
                 <article class="rounded-3xl border {{ $isCurrentPlan ? 'border-indigo-400 ring-2 ring-indigo-100' : ($isPendingPlan ? 'border-amber-300 ring-2 ring-amber-100' : 'border-slate-200') }} bg-white p-6 shadow-sm">
                     <div class="flex flex-wrap gap-2">
                         @if($isCurrentPlan)<span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-black text-indigo-700">Current plan</span>@endif
-                        @if($isPendingPlan)<span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">Pending change</span>@endif
+                        @if($isPendingPlan)<span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">Next renewal</span>@endif
                     </div>
 
                     <h2 class="{{ ($isCurrentPlan || $isPendingPlan) ? 'mt-4' : '' }} text-xl font-black">{{ $plan->name }}</h2>
@@ -133,26 +160,29 @@
 
                     @if($isCurrentPlan)
                         <div class="mt-6 rounded-2xl bg-indigo-50 px-5 py-3 text-center text-sm font-bold text-indigo-700">
-                            {{ $subscription->auto_renew ? 'Current plan · renews automatically' : 'Current plan · active until period end' }}
+                            {{ $subscription->auto_renew ? 'Current plan · renews automatically' : 'Current plan · ends after paid period' }}
                         </div>
-                    @elseif($activeSubscription && ($pendingPlan || $hasStripeSchedule))
-                        <div class="mt-6 rounded-2xl bg-slate-100 px-5 py-3 text-center text-sm font-bold text-slate-500">Cancel the scheduled Stripe change first</div>
+                    @elseif($activeSubscription && ($pendingPlan || $hasLegacyStripeSchedule))
+                        <div class="mt-6 rounded-2xl bg-slate-100 px-5 py-3 text-center text-sm font-bold text-slate-500">Resolve the current pending billing action first</div>
                     @elseif($isImmediateUpgrade)
                         <form method="POST" action="{{ route('client-portal.billing.checkout', [$company, $plan]) }}" class="mt-6">
                             @csrf
                             <button class="w-full rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white">Upgrade now · prorated</button>
-                            <p class="mt-2 text-center text-xs text-slate-500">Stripe charges only the remaining-period difference. Higher limits activate only after payment succeeds.</p>
+                            <p class="mt-2 text-center text-xs text-slate-500">Stripe changes this subscription to the higher price and invoices the remaining-period difference immediately.</p>
                         </form>
-                    @elseif($isScheduledChange)
+                    @elseif($isDeferredDowngrade)
                         @if($subscription->auto_renew)
                             <form method="POST" action="{{ route('client-portal.billing.checkout', [$company, $plan]) }}" class="mt-6">
                                 @csrf
-                                <button class="w-full rounded-2xl border border-indigo-300 bg-white px-5 py-3 text-sm font-bold text-indigo-700">{{ $direction === -1 ? 'Downgrade at next renewal' : 'Change at next renewal' }}</button>
-                                <p class="mt-2 text-center text-xs text-slate-500">No immediate charge or loss of current-plan access.</p>
+                                <button class="w-full rounded-2xl border border-indigo-300 bg-white px-5 py-3 text-sm font-bold text-indigo-700">Downgrade next renewal</button>
+                                <p class="mt-2 text-center text-xs text-slate-500">No immediate refund or charge. Current access stays until renewal; Stripe uses this lower price next.</p>
                             </form>
                         @else
-                            <div class="mt-6 rounded-2xl bg-slate-100 px-5 py-3 text-center text-sm font-bold text-slate-500">Re-enable renewal before scheduling this plan</div>
+                            <div class="mt-6 rounded-2xl bg-slate-100 px-5 py-3 text-center text-sm font-bold text-slate-500">Resume the subscription before changing its next renewal plan</div>
                         @endif
+                    @elseif($isDifferentInterval)
+                        <div class="mt-6 rounded-2xl bg-slate-100 px-5 py-3 text-center text-sm font-bold text-slate-500">Available after the current billing period ends</div>
+                        <p class="mt-2 text-center text-xs text-slate-500">Different billing intervals are intentionally not switched mid-subscription.</p>
                     @elseif($activeSubscription && $direction === null)
                         <div class="mt-6 rounded-2xl bg-amber-50 px-5 py-3 text-center text-sm font-bold text-amber-700">Admin must set Billing rank before this plan can be compared safely</div>
                     @elseif($hasRecoverableStripeSubscription)
