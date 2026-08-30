@@ -24,7 +24,6 @@ class StripePlatformWebhookController extends Controller
             $event = $stripe->verifyWebhook($payload, (string) $request->header('Stripe-Signature'));
         } catch (Throwable $exception) {
             report($exception);
-
             return response('Invalid webhook', 400);
         }
 
@@ -84,6 +83,9 @@ class StripePlatformWebhookController extends Controller
                 'customer.subscription.deleted' => $this->syncSubscription($object),
                 'invoice.payment_succeeded' => $this->paymentSucceeded($object),
                 'invoice.payment_failed' => $this->paymentFailed($object),
+                'subscription_schedule.completed',
+                'subscription_schedule.released',
+                'subscription_schedule.canceled' => $this->syncScheduleLifecycle($object),
                 default => null,
             };
 
@@ -99,7 +101,6 @@ class StripePlatformWebhookController extends Controller
             ]);
 
             report($exception);
-
             return response('Webhook processing failed', 500);
         }
 
@@ -108,24 +109,25 @@ class StripePlatformWebhookController extends Controller
 
     private function checkoutCompleted(array $session, StripePlatformBillingService $stripe): void
     {
-        // Legacy prepaid extension sessions must never mutate entitlement now
-        // that the product uses a single recurring-subscription lifecycle.
         if (($session['metadata']['purchase_type'] ?? null) === 'extension') {
             return;
         }
 
         $company = Company::find((int) ($session['metadata']['company_id'] ?? $session['client_reference_id'] ?? 0));
-        $plan = PlatformSubscriptionPlan::find((int) ($session['metadata']['plan_id'] ?? 0));
-        $subscriptionValue = $session['subscription'] ?? null;
-        $subscriptionId = is_array($subscriptionValue)
-            ? (string) ($subscriptionValue['id'] ?? '')
-            : (string) ($subscriptionValue ?? '');
+        $subscriptionId = $this->stripeId($session['subscription'] ?? null);
 
-        if (! $company || ! $plan || $subscriptionId === '') {
+        if (! $company || ! $subscriptionId) {
             return;
         }
 
         $stripeSubscription = $stripe->retrieveSubscription($subscriptionId);
+        $plan = $this->planFromSubscription($stripeSubscription)
+            ?? PlatformSubscriptionPlan::find((int) ($session['metadata']['plan_id'] ?? 0));
+
+        if (! $plan) {
+            return;
+        }
+
         $status = (string) ($stripeSubscription['status'] ?? 'incomplete');
         $startsAt = isset($stripeSubscription['current_period_start'])
             ? now()->setTimestamp($stripeSubscription['current_period_start'])
@@ -133,16 +135,15 @@ class StripePlatformWebhookController extends Controller
         $periodEnd = isset($stripeSubscription['current_period_end'])
             ? now()->setTimestamp($stripeSubscription['current_period_end'])
             : $plan->calculateExpiry($startsAt);
-        $customerValue = $stripeSubscription['customer'] ?? $session['customer'] ?? null;
-        $customerId = is_array($customerValue)
-            ? ($customerValue['id'] ?? null)
-            : $customerValue;
 
         $company->subscription()->updateOrCreate([], [
             'platform_subscription_plan_id' => $plan->id,
+            'pending_platform_subscription_plan_id' => null,
+            'pending_plan_effective_at' => null,
             'status' => $status,
-            'stripe_customer_id' => $customerId,
+            'stripe_customer_id' => $this->stripeId($stripeSubscription['customer'] ?? $session['customer'] ?? null),
             'stripe_subscription_id' => $subscriptionId,
+            'stripe_subscription_schedule_id' => $this->stripeId($stripeSubscription['schedule'] ?? null),
             'stripe_checkout_session_id' => $session['id'] ?? null,
             'starts_at' => $startsAt,
             'expires_at' => $periodEnd,
@@ -169,15 +170,13 @@ class StripePlatformWebhookController extends Controller
         $periodEnd = isset($subscription['current_period_end'])
             ? now()->setTimestamp($subscription['current_period_end'])
             : $record->current_period_ends_at;
-        $customerValue = $subscription['customer'] ?? null;
-        $customerId = is_array($customerValue)
-            ? ($customerValue['id'] ?? $record->stripe_customer_id)
-            : ($customerValue ?? $record->stripe_customer_id);
-
-        $record->update([
-            'platform_subscription_plan_id' => (int) ($subscription['metadata']['plan_id'] ?? $record->platform_subscription_plan_id) ?: null,
+        $resolvedPlan = $this->planFromSubscription($subscription)
+            ?? PlatformSubscriptionPlan::find((int) ($subscription['metadata']['plan_id'] ?? 0));
+        $scheduleId = $this->stripeId($subscription['schedule'] ?? null);
+        $hasPendingUpdate = ! empty($subscription['pending_update']);
+        $updates = [
             'status' => $status,
-            'stripe_customer_id' => $customerId,
+            'stripe_customer_id' => $this->stripeId($subscription['customer'] ?? null) ?: $record->stripe_customer_id,
             'stripe_subscription_id' => $subscription['id'] ?? $record->stripe_subscription_id,
             'starts_at' => $start,
             'expires_at' => $periodEnd ?? $record->expires_at,
@@ -187,28 +186,46 @@ class StripePlatformWebhookController extends Controller
             'is_enabled' => ! in_array($status, ['canceled', 'unpaid', 'incomplete_expired', 'paused'], true),
             'cancel_at' => isset($subscription['cancel_at']) ? now()->setTimestamp($subscription['cancel_at']) : null,
             'canceled_at' => isset($subscription['canceled_at']) ? now()->setTimestamp($subscription['canceled_at']) : null,
-        ]);
+        ];
+
+        if ($scheduleId) {
+            $updates['stripe_subscription_schedule_id'] = $scheduleId;
+        }
+
+        if ($resolvedPlan) {
+            $updates['platform_subscription_plan_id'] = $resolvedPlan->id;
+
+            if ((int) $record->pending_platform_subscription_plan_id === (int) $resolvedPlan->id) {
+                $updates['pending_platform_subscription_plan_id'] = null;
+                $updates['pending_plan_effective_at'] = null;
+            }
+        }
+
+        // An immediate upgrade that was pending payment eventually disappears
+        // from Stripe if it fails/expires. Clear the local pending badge without
+        // changing the current plan in that case.
+        if ($record->pending_platform_subscription_plan_id
+            && ! $record->pending_plan_effective_at
+            && ! $hasPendingUpdate
+            && (! $resolvedPlan || (int) $resolvedPlan->id !== (int) $record->pending_platform_subscription_plan_id)) {
+            $updates['pending_platform_subscription_plan_id'] = null;
+        }
+
+        $record->update($updates);
     }
 
     private function paymentSucceeded(array $invoice): void
     {
-        $subscriptionValue = $invoice['subscription'] ?? null;
-        $subscriptionId = is_array($subscriptionValue)
-            ? (string) ($subscriptionValue['id'] ?? '')
-            : (string) ($subscriptionValue ?? '');
-        $record = CompanySubscription::where('stripe_subscription_id', $subscriptionId)->first();
-
+        $record = $this->subscriptionFromInvoice($invoice);
         if (! $record) {
             return;
         }
 
         $period = $invoice['lines']['data'][0]['period'] ?? [];
         $periodStart = isset($period['start']) ? now()->setTimestamp($period['start']) : ($record->starts_at ?? now());
-        $periodEnd = isset($period['end'])
-            ? now()->setTimestamp($period['end'])
-            : $record->plan?->calculateExpiry($periodStart);
-
-        $record->update([
+        $periodEnd = isset($period['end']) ? now()->setTimestamp($period['end']) : $record->plan?->calculateExpiry($periodStart);
+        $resolvedPlan = $this->planFromInvoice($invoice, $record);
+        $updates = [
             'status' => 'active',
             'is_enabled' => true,
             'starts_at' => $periodStart,
@@ -218,32 +235,68 @@ class StripePlatformWebhookController extends Controller
             'renewal_failure_count' => 0,
             'last_renewal_attempt_at' => now(),
             'last_renewal_error' => null,
-        ]);
+        ];
 
-        $this->recordPayment($record, $invoice, 'paid');
+        if ($resolvedPlan) {
+            $updates['platform_subscription_plan_id'] = $resolvedPlan->id;
+            if ((int) $record->pending_platform_subscription_plan_id === (int) $resolvedPlan->id) {
+                $updates['pending_platform_subscription_plan_id'] = null;
+                $updates['pending_plan_effective_at'] = null;
+            }
+        }
+
+        $record->update($updates);
+        $this->recordPayment($record->fresh(), $invoice, 'paid');
     }
 
     private function paymentFailed(array $invoice): void
     {
-        $subscriptionValue = $invoice['subscription'] ?? null;
-        $subscriptionId = is_array($subscriptionValue)
-            ? (string) ($subscriptionValue['id'] ?? '')
-            : (string) ($subscriptionValue ?? '');
-        $record = CompanySubscription::where('stripe_subscription_id', $subscriptionId)->first();
-
+        $record = $this->subscriptionFromInvoice($invoice);
         if (! $record) {
             return;
         }
 
         $record->increment('renewal_failure_count');
-        $message = $invoice['last_finalization_error']['message'] ?? 'Automatic renewal payment failed.';
-        $record->update([
-            'status' => 'past_due',
-            'last_renewal_attempt_at' => now(),
-            'last_renewal_error' => $message,
-        ]);
+        $message = $invoice['last_finalization_error']['message']
+            ?? $invoice['payment_intent']['last_payment_error']['message']
+            ?? 'Automatic subscription payment failed.';
 
-        $this->recordPayment($record, $invoice, 'failed', $message);
+        $isPendingUpgradeInvoice = $record->pending_platform_subscription_plan_id
+            && ! $record->pending_plan_effective_at;
+
+        if ($isPendingUpgradeInvoice) {
+            // pending_if_incomplete deliberately keeps the old subscription item
+            // active when the upgrade invoice fails. Do not revoke current access.
+            $record->update([
+                'last_renewal_attempt_at' => now(),
+                'last_renewal_error' => $message,
+            ]);
+        } else {
+            $record->update([
+                'status' => 'past_due',
+                'last_renewal_attempt_at' => now(),
+                'last_renewal_error' => $message,
+            ]);
+        }
+
+        $this->recordPayment($record->fresh(), $invoice, 'failed', $message);
+    }
+
+    private function syncScheduleLifecycle(array $schedule): void
+    {
+        $scheduleId = (string) ($schedule['id'] ?? '');
+        $subscriptionId = $this->stripeId($schedule['subscription'] ?? null);
+
+        $record = CompanySubscription::query()
+            ->when($scheduleId !== '', fn ($query) => $query->where('stripe_subscription_schedule_id', $scheduleId))
+            ->when($scheduleId === '' && $subscriptionId, fn ($query) => $query->where('stripe_subscription_id', $subscriptionId))
+            ->first();
+
+        if (! $record) {
+            return;
+        }
+
+        $record->update(['stripe_subscription_schedule_id' => null]);
     }
 
     private function recordPayment(CompanySubscription $record, array $invoice, string $status, ?string $failure = null): void
@@ -254,12 +307,9 @@ class StripePlatformWebhookController extends Controller
                 'company_id' => $record->company_id,
                 'company_subscription_id' => $record->id,
                 'platform_subscription_plan_id' => $record->platform_subscription_plan_id,
-                'provider_payment_id' => is_array($invoice['payment_intent'] ?? null)
-                    ? ($invoice['payment_intent']['id'] ?? null)
-                    : ($invoice['payment_intent'] ?? $invoice['charge'] ?? null),
-                'provider_customer_id' => is_array($invoice['customer'] ?? null)
-                    ? ($invoice['customer']['id'] ?? $record->stripe_customer_id)
-                    : ($invoice['customer'] ?? $record->stripe_customer_id),
+                'provider_payment_id' => $this->stripeId($invoice['payment_intent'] ?? null)
+                    ?? $this->stripeId($invoice['charge'] ?? null),
+                'provider_customer_id' => $this->stripeId($invoice['customer'] ?? null) ?: $record->stripe_customer_id,
                 'status' => $status,
                 'amount' => ((int) ($invoice['amount_paid'] ?? $invoice['amount_due'] ?? 0)) / 100,
                 'currency' => strtoupper((string) ($invoice['currency'] ?? 'MYR')),
@@ -275,6 +325,40 @@ class StripePlatformWebhookController extends Controller
         );
     }
 
+    private function subscriptionFromInvoice(array $invoice): ?CompanySubscription
+    {
+        $subscriptionId = $this->stripeId($invoice['subscription'] ?? null);
+        return $subscriptionId ? CompanySubscription::where('stripe_subscription_id', $subscriptionId)->first() : null;
+    }
+
+    private function planFromSubscription(array $subscription): ?PlatformSubscriptionPlan
+    {
+        $price = data_get($subscription, 'items.data.0.price');
+        $priceId = is_array($price) ? (string) ($price['id'] ?? '') : (string) ($price ?? '');
+
+        return $priceId !== '' ? PlatformSubscriptionPlan::where('stripe_price_id', $priceId)->first() : null;
+    }
+
+    private function planFromInvoice(array $invoice, CompanySubscription $record): ?PlatformSubscriptionPlan
+    {
+        $priceIds = collect($invoice['lines']['data'] ?? [])
+            ->map(function ($line): string {
+                $price = is_array($line) ? ($line['price'] ?? null) : null;
+                return is_array($price) ? (string) ($price['id'] ?? '') : (string) ($price ?? '');
+            })
+            ->filter()
+            ->unique();
+
+        if ($record->pending_platform_subscription_plan_id) {
+            $pending = PlatformSubscriptionPlan::find($record->pending_platform_subscription_plan_id);
+            if ($pending?->stripe_price_id && $priceIds->contains((string) $pending->stripe_price_id)) {
+                return $pending;
+            }
+        }
+
+        return PlatformSubscriptionPlan::whereIn('stripe_price_id', $priceIds)->orderByDesc('billing_rank')->first();
+    }
+
     private function findSubscription(array $subscription): ?CompanySubscription
     {
         $companyId = (int) ($subscription['metadata']['company_id'] ?? 0);
@@ -283,5 +367,15 @@ class StripePlatformWebhookController extends Controller
             ->when($companyId, fn ($query) => $query->where('company_id', $companyId))
             ->when(! $companyId, fn ($query) => $query->where('stripe_subscription_id', $subscription['id'] ?? ''))
             ->first();
+    }
+
+    private function stripeId(mixed $value): ?string
+    {
+        if (is_array($value)) {
+            $value = $value['id'] ?? null;
+        }
+
+        $value = is_scalar($value) ? (string) $value : '';
+        return $value !== '' ? $value : null;
     }
 }
