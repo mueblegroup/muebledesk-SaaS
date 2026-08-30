@@ -36,10 +36,23 @@ class SuperAdminPlanController extends Controller
     public function update(Request $request, PlatformSubscriptionPlan $plan): RedirectResponse
     {
         $validated = $this->validatePlan($request, $plan);
+        $billingPriceChanged = (float) $plan->price !== (float) $validated['price']
+            || strtoupper((string) $plan->currency) !== strtoupper((string) $validated['currency'])
+            || (int) $plan->duration_value !== (int) $validated['duration_value']
+            || (string) $plan->duration_unit !== (string) $validated['duration_unit'];
 
-        $plan->update($validated + [
+        $payload = $validated + [
             'slug' => $this->uniqueSlug($validated['name'], $plan),
-        ]);
+        ];
+
+        // Stripe Prices are immutable for amount/currency/recurrence. Clearing
+        // the cached ID causes the next checkout/plan change to create a new
+        // reusable Price while existing subscriptions keep their historical one.
+        if ($billingPriceChanged) {
+            $payload['stripe_price_id'] = null;
+        }
+
+        $plan->update($payload);
 
         return back()->with('success', 'Subscription plan updated.');
     }
@@ -69,6 +82,7 @@ class SuperAdminPlanController extends Controller
             'feature_keys.*' => ['string', Rule::in(array_keys(PlatformSubscriptionPlan::FEATURE_OPTIONS))],
             'features_text' => ['nullable', 'string'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
+            'billing_rank' => ['nullable', 'integer', 'min:0', 'max:1000000'],
             'auto_renew_default' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'],
         ]);
@@ -89,6 +103,7 @@ class SuperAdminPlanController extends Controller
         $validated['auto_renew_default'] = $request->boolean('auto_renew_default');
         $validated['is_active'] = $request->boolean('is_active');
         $validated['sort_order'] = $validated['sort_order'] ?? 0;
+        $validated['billing_rank'] = $validated['billing_rank'] ?? 0;
 
         unset($validated['feature_keys'], $validated['features_text']);
 
