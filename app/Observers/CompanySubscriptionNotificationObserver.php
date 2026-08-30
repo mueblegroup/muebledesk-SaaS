@@ -76,6 +76,11 @@ class CompanySubscriptionNotificationObserver
 
         if ($subscription->wasChanged('auto_renew') && in_array((string) $subscription->status, ['active', 'trialing', 'past_due'], true)) {
             $autoRenew = (bool) $subscription->auto_renew;
+            $dateLabel = $autoRenew ? 'Next renewal' : 'Access through';
+            $dateValue = ($subscription->current_period_ends_at ?? $subscription->expires_at)
+                ?->timezone($company->timezone ?: config('app.timezone'))
+                ->format('d M Y H:i T');
+
             app(BillingActivityNotifier::class)->notifyOwners(
                 $company,
                 $autoRenew ? 'Subscription resumed — '.$company->name : 'Subscription cancellation scheduled — '.$company->name,
@@ -84,7 +89,7 @@ class CompanySubscriptionNotificationObserver
                     : 'Your MuebleDesk subscription is set to end after the current paid period. No further automatic renewal will occur unless you resume it.',
                 [
                     'Plan' => $subscription->plan?->name ?? 'Subscription plan',
-                    $autoRenew ? 'Next renewal' : 'Access through' => ($subscription->current_period_ends_at ?? $subscription->expires_at)?->timezone($company->timezone ?: config('app.timezone'))->format('d M Y H:i T'),
+                    $dateLabel => $dateValue,
                 ]
             );
         }
