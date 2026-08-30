@@ -13,8 +13,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
-use RuntimeException;
 
 class RegisteredUserController extends Controller
 {
@@ -75,15 +75,16 @@ class RegisteredUserController extends Controller
     {
         $dialCode = (string) data_get($countries, $countryCode.'.dial', '');
         if ($dialCode === '' || ! preg_match('/^\+[1-9]\d{0,3}$/', $dialCode)) {
-            throw new RuntimeException('The selected country does not have a valid dialing code.');
+            throw ValidationException::withMessages([
+                'country_code' => 'The selected country does not have a valid international dialing code.',
+            ]);
         }
 
         $digits = preg_replace('/\D+/', '', $rawPhone) ?? '';
         $dialDigits = ltrim($dialCode, '+');
 
-        // Accept users pasting either a national number (012...) or a complete
-        // international number (+6012...). Store one canonical international
-        // representation so billing/WhatsApp integrations don't need to guess.
+        // Accept either a national number (012...) or a pasted international
+        // number (+6012...). Store one canonical international representation.
         if (str_starts_with($digits, $dialDigits)) {
             $nationalDigits = substr($digits, strlen($dialDigits));
         } else {
@@ -91,7 +92,9 @@ class RegisteredUserController extends Controller
         }
 
         if ($nationalDigits === '' || strlen($dialDigits.$nationalDigits) < 7 || strlen($dialDigits.$nationalDigits) > 15) {
-            abort(422, 'Please enter a valid mobile number for the selected country.');
+            throw ValidationException::withMessages([
+                'phone' => 'Please enter a valid mobile number for the selected country.',
+            ]);
         }
 
         return '+'.$dialDigits.$nationalDigits;
