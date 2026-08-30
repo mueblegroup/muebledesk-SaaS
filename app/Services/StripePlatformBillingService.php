@@ -25,13 +25,11 @@ class StripePlatformBillingService
         ]);
 
         $priceId = $this->ensurePlanPrice($plan);
-
         $payload = [
             'mode' => 'subscription',
             'success_url' => $successUrl.'?session_id={CHECKOUT_SESSION_ID}',
             'cancel_url' => $cancelUrl,
             'client_reference_id' => (string) $company->id,
-            'customer_email' => $company->email ?: $company->owners()->value('email'),
             'line_items[0][quantity]' => 1,
             'line_items[0][price]' => $priceId,
             'metadata[company_id]' => (string) $company->id,
@@ -42,16 +40,27 @@ class StripePlatformBillingService
             'subscription_data[metadata][plan_id]' => (string) $plan->id,
         ];
 
+        if ($subscription->stripe_customer_id) {
+            $payload['customer'] = $subscription->stripe_customer_id;
+        } else {
+            $payload['customer_email'] = $company->email ?: $company->owners()->value('email');
+        }
+
         if (! $autoRenew) {
             $payload['subscription_data[cancel_at_period_end]'] = 'true';
         }
 
         $session = $this->request('POST', '/v1/checkout/sessions', $payload);
 
+        // This row can represent a previous terminal subscription. Once a new
+        // Checkout begins, detach the old subscription/schedule identifiers so
+        // the billing page cannot accidentally resync the canceled subscription
+        // while the new Checkout is in progress. The Stripe customer is retained.
         $subscription->update([
             'platform_subscription_plan_id' => $plan->id,
             'pending_platform_subscription_plan_id' => null,
             'pending_plan_effective_at' => null,
+            'stripe_subscription_id' => null,
             'stripe_subscription_schedule_id' => null,
             'stripe_checkout_session_id' => Arr::get($session, 'id'),
             'status' => 'incomplete',
@@ -62,11 +71,6 @@ class StripePlatformBillingService
         return $session;
     }
 
-    /**
-     * Upgrade an existing subscription immediately. Stripe creates and attempts
-     * the prorated invoice now. pending_if_incomplete means the higher-priced
-     * subscription item is not applied unless that invoice can be paid.
-     */
     public function upgradeSubscription(CompanySubscription $subscription, PlatformSubscriptionPlan $targetPlan): array
     {
         if (! $subscription->stripe_subscription_id) {
@@ -129,8 +133,6 @@ class StripePlatformBillingService
             throw new RuntimeException('Stripe did not confirm the requested upgraded price. Local entitlements were not changed.');
         }
 
-        // Metadata is non-billing state. Update it only after the paid price
-        // change has been applied so webhook reconciliation can identify the plan.
         $updated = $this->request('POST', '/v1/subscriptions/'.$subscription->stripe_subscription_id, [
             'metadata[company_id]' => (string) $subscription->company_id,
             'metadata[plan_id]' => (string) $targetPlan->id,
@@ -144,11 +146,6 @@ class StripePlatformBillingService
         ];
     }
 
-    /**
-     * Schedule a downgrade (or a billing-interval change) for the next renewal.
-     * The customer keeps the plan already paid for, and Stripe changes the price
-     * only when the current period ends.
-     */
     public function schedulePlanChangeAtPeriodEnd(CompanySubscription $subscription, PlatformSubscriptionPlan $targetPlan): array
     {
         if (! $subscription->stripe_subscription_id) {
@@ -207,7 +204,6 @@ class StripePlatformBillingService
             }
         }
 
-        $targetInterval = $this->stripeInterval($targetPlan);
         $schedule = $this->request('POST', '/v1/subscription_schedules/'.$scheduleId, [
             'end_behavior' => 'release',
             'proration_behavior' => 'none',
@@ -219,7 +215,7 @@ class StripePlatformBillingService
             'phases[1][start_date]' => $currentEnd,
             'phases[1][items][0][price]' => $targetPriceId,
             'phases[1][items][0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
-            'phases[1][duration][interval]' => $targetInterval,
+            'phases[1][duration][interval]' => $this->stripeInterval($targetPlan),
             'phases[1][duration][interval_count]' => max(1, (int) $targetPlan->duration_value),
             'phases[1][proration_behavior]' => 'none',
         ], 'muebledesk-schedule-change-'.$scheduleId.'-'.$targetPlan->id.'-'.$currentEnd);
@@ -238,12 +234,7 @@ class StripePlatformBillingService
             return;
         }
 
-        $this->request(
-            'POST',
-            '/v1/subscription_schedules/'.$scheduleId.'/release',
-            [],
-            'muebledesk-schedule-release-'.$scheduleId
-        );
+        $this->request('POST', '/v1/subscription_schedules/'.$scheduleId.'/release', [], 'muebledesk-schedule-release-'.$scheduleId);
     }
 
     public function ensurePlanPrice(PlatformSubscriptionPlan $plan): string
@@ -291,7 +282,6 @@ class StripePlatformBillingService
         }
 
         $plan->forceFill(['stripe_price_id' => $priceId])->save();
-
         return $priceId;
     }
 
@@ -329,7 +319,6 @@ class StripePlatformBillingService
 
         $parts = collect(explode(',', $signatureHeader))->mapWithKeys(function (string $part): array {
             [$key, $value] = array_pad(explode('=', trim($part), 2), 2, null);
-
             return $key && $value ? [$key => $value] : [];
         });
 
@@ -359,19 +348,13 @@ class StripePlatformBillingService
     private function priceIdFromSubscription(array $subscription): string
     {
         $price = Arr::get($subscription, 'items.data.0.price');
-
-        return is_array($price)
-            ? (string) ($price['id'] ?? '')
-            : (string) ($price ?? '');
+        return is_array($price) ? (string) ($price['id'] ?? '') : (string) ($price ?? '');
     }
 
     private function stripeScheduleId(array $subscription): string
     {
         $schedule = $subscription['schedule'] ?? null;
-
-        return is_array($schedule)
-            ? (string) ($schedule['id'] ?? '')
-            : (string) ($schedule ?? '');
+        return is_array($schedule) ? (string) ($schedule['id'] ?? '') : (string) ($schedule ?? '');
     }
 
     private function request(string $method, string $path, array $formParams = [], ?string $idempotencyKey = null): array
@@ -393,7 +376,6 @@ class StripePlatformBillingService
         $options[$method === 'GET' ? 'query' : 'form_params'] = $formParams;
 
         $response = $this->client->request($method, 'https://api.stripe.com'.$path, $options);
-
         return json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
     }
 }
