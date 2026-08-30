@@ -52,10 +52,6 @@ class StripePlatformBillingService
 
         $session = $this->request('POST', '/v1/checkout/sessions', $payload);
 
-        // This row can represent a previous terminal subscription. Once a new
-        // Checkout begins, detach the old subscription/schedule identifiers so
-        // the billing page cannot accidentally resync the canceled subscription
-        // while the new Checkout is in progress. The Stripe customer is retained.
         $subscription->update([
             'platform_subscription_plan_id' => $plan->id,
             'pending_platform_subscription_plan_id' => null,
@@ -76,6 +72,8 @@ class StripePlatformBillingService
         if (! $subscription->stripe_subscription_id) {
             throw new RuntimeException('The current subscription is missing its Stripe subscription ID.');
         }
+
+        $this->assertCompanyFitsPlan($subscription, $targetPlan);
 
         $remote = $this->retrieveSubscription($subscription->stripe_subscription_id);
         if (! in_array((string) ($remote['status'] ?? ''), ['active', 'trialing'], true)) {
@@ -151,6 +149,8 @@ class StripePlatformBillingService
         if (! $subscription->stripe_subscription_id) {
             throw new RuntimeException('The current subscription is missing its Stripe subscription ID.');
         }
+
+        $this->assertCompanyFitsPlan($subscription, $targetPlan);
 
         $remote = $this->retrieveSubscription($subscription->stripe_subscription_id);
         if (! in_array((string) ($remote['status'] ?? ''), ['active', 'trialing'], true)) {
@@ -334,6 +334,34 @@ class StripePlatformBillingService
         }
 
         return json_decode($payload, true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    private function assertCompanyFitsPlan(CompanySubscription $subscription, PlatformSubscriptionPlan $targetPlan): void
+    {
+        $subscription->loadMissing('company');
+        $company = $subscription->company;
+        if (! $company) {
+            throw new RuntimeException('The subscription company could not be loaded.');
+        }
+
+        $violations = collect([
+            'admin' => 'admins',
+            'employee' => 'employees',
+            'customer' => 'clients',
+        ])->map(function (string $label, string $role) use ($company, $targetPlan): ?string {
+            $limit = $targetPlan->limitForRole($role);
+            $used = $company->usageForRole($role);
+
+            if ($limit !== null && $used > $limit) {
+                return $used.' '.$label.' in use; target plan allows '.$limit;
+            }
+
+            return null;
+        })->filter()->values();
+
+        if ($violations->isNotEmpty()) {
+            throw new RuntimeException('Reduce account usage before changing to this plan: '.$violations->implode('; ').'.');
+        }
     }
 
     private function stripeInterval(PlatformSubscriptionPlan $plan): string
