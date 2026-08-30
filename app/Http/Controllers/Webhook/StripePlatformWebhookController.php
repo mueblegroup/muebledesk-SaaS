@@ -174,10 +174,19 @@ class StripePlatformWebhookController extends Controller
             ?? PlatformSubscriptionPlan::find((int) ($subscription['metadata']['plan_id'] ?? 0));
         $scheduleId = $this->stripeId($subscription['schedule'] ?? null);
         $hasPendingUpdate = ! empty($subscription['pending_update']);
+        $pendingPlanId = (int) ($record->pending_platform_subscription_plan_id ?? 0);
+        $pendingEffectiveAt = $record->pending_plan_effective_at;
+        $deferredPlanStillPending = $pendingPlanId > 0
+            && $pendingEffectiveAt
+            && $pendingEffectiveAt->isFuture()
+            && $resolvedPlan
+            && (int) $resolvedPlan->id === $pendingPlanId;
+
         $updates = [
             'status' => $status,
             'stripe_customer_id' => $this->stripeId($subscription['customer'] ?? null) ?: $record->stripe_customer_id,
             'stripe_subscription_id' => $subscription['id'] ?? $record->stripe_subscription_id,
+            'stripe_subscription_schedule_id' => $scheduleId,
             'starts_at' => $start,
             'expires_at' => $periodEnd ?? $record->expires_at,
             'current_period_starts_at' => $start,
@@ -188,26 +197,19 @@ class StripePlatformWebhookController extends Controller
             'canceled_at' => isset($subscription['canceled_at']) ? now()->setTimestamp($subscription['canceled_at']) : null,
         ];
 
-        if ($scheduleId) {
-            $updates['stripe_subscription_schedule_id'] = $scheduleId;
-        }
-
-        if ($resolvedPlan) {
+        if ($resolvedPlan && ! $deferredPlanStillPending) {
             $updates['platform_subscription_plan_id'] = $resolvedPlan->id;
 
-            if ((int) $record->pending_platform_subscription_plan_id === (int) $resolvedPlan->id) {
+            if ($pendingPlanId === (int) $resolvedPlan->id) {
                 $updates['pending_platform_subscription_plan_id'] = null;
                 $updates['pending_plan_effective_at'] = null;
             }
         }
 
-        // An immediate upgrade that was pending payment eventually disappears
-        // from Stripe if it fails/expires. Clear the local pending badge without
-        // changing the current plan in that case.
-        if ($record->pending_platform_subscription_plan_id
-            && ! $record->pending_plan_effective_at
+        if ($pendingPlanId > 0
+            && ! $pendingEffectiveAt
             && ! $hasPendingUpdate
-            && (! $resolvedPlan || (int) $resolvedPlan->id !== (int) $record->pending_platform_subscription_plan_id)) {
+            && (! $resolvedPlan || (int) $resolvedPlan->id !== $pendingPlanId)) {
             $updates['pending_platform_subscription_plan_id'] = null;
         }
 
@@ -238,8 +240,15 @@ class StripePlatformWebhookController extends Controller
         ];
 
         if ($resolvedPlan) {
-            $updates['platform_subscription_plan_id'] = $resolvedPlan->id;
-            if ((int) $record->pending_platform_subscription_plan_id === (int) $resolvedPlan->id) {
+            $pendingMatches = (int) $record->pending_platform_subscription_plan_id === (int) $resolvedPlan->id;
+            $effectiveReached = ! $record->pending_plan_effective_at
+                || $periodStart->greaterThanOrEqualTo($record->pending_plan_effective_at);
+
+            if (! $pendingMatches || $effectiveReached) {
+                $updates['platform_subscription_plan_id'] = $resolvedPlan->id;
+            }
+
+            if ($pendingMatches && $effectiveReached) {
                 $updates['pending_platform_subscription_plan_id'] = null;
                 $updates['pending_plan_effective_at'] = null;
             }
@@ -265,8 +274,6 @@ class StripePlatformWebhookController extends Controller
             && ! $record->pending_plan_effective_at;
 
         if ($isPendingUpgradeInvoice) {
-            // pending_if_incomplete deliberately keeps the old subscription item
-            // active when the upgrade invoice fails. Do not revoke current access.
             $record->update([
                 'last_renewal_attempt_at' => now(),
                 'last_renewal_error' => $message,
