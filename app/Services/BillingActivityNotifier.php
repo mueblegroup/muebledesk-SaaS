@@ -14,7 +14,8 @@ class BillingActivityNotifier
         string $headline,
         array $details = []
     ): void {
-        $owners = $company->owners()
+        $recipients = $company->users()
+            ->wherePivotIn('role', ['owner', 'admin'])
             ->whereNotNull('users.email')
             ->get()
             ->unique(fn ($user) => strtolower((string) $user->email))
@@ -29,8 +30,8 @@ class BillingActivityNotifier
             actionUrl: $actionUrl,
         );
 
-        if ($owners->isNotEmpty()) {
-            Notification::send($owners, $notification);
+        if ($recipients->isNotEmpty()) {
+            Notification::send($recipients, $notification);
             return;
         }
 
