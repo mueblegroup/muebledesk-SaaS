@@ -204,7 +204,7 @@ class StripePlatformBillingService
             }
         }
 
-        $schedule = $this->request('POST', '/v1/subscription_schedules/'.$scheduleId, [
+        $schedulePayload = [
             'end_behavior' => 'release',
             'proration_behavior' => 'none',
             'phases[0][start_date]' => $currentStart,
@@ -215,17 +215,24 @@ class StripePlatformBillingService
             'phases[1][start_date]' => $currentEnd,
             'phases[1][items][0][price]' => $targetPriceId,
             'phases[1][items][0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
-            // The service pins Stripe API 2024-06-20. In that API version,
-            // schedule phase length is expressed with `iterations`; the newer
-            // phases[].duration object is not accepted and returns
-            // parameter_unknown. One iteration means one full billing interval
-            // of the target Price, after which end_behavior=release keeps the
-            // subscription running indefinitely on that target Price.
+            // Stripe API 2024-06-20 uses iterations for phase length. One
+            // iteration means one complete recurring interval of target Price.
             'phases[1][iterations]' => 1,
             'phases[1][proration_behavior]' => 'none',
             'phases[1][metadata][company_id]' => (string) $subscription->company_id,
             'phases[1][metadata][plan_id]' => (string) $targetPlan->id,
-        ], 'muebledesk-schedule-change-'.$scheduleId.'-'.$targetPlan->id.'-'.$currentEnd);
+        ];
+
+        // Stripe binds an idempotency key permanently to the first exact set of
+        // parameters. Include a payload fingerprint so a corrected deployment
+        // cannot collide with a key previously used by an older payload shape.
+        $payloadFingerprint = substr(hash('sha256', json_encode($schedulePayload, JSON_THROW_ON_ERROR)), 0, 24);
+        $schedule = $this->request(
+            'POST',
+            '/v1/subscription_schedules/'.$scheduleId,
+            $schedulePayload,
+            'muebledesk-schedule-change-'.$scheduleId.'-'.$targetPlan->id.'-'.$currentEnd.'-'.$payloadFingerprint
+        );
 
         return [
             'schedule' => $schedule,
@@ -235,10 +242,8 @@ class StripePlatformBillingService
     }
 
     /**
-     * Release the schedule currently attached to this exact Stripe subscription.
-     * The schedule ID is re-read from Stripe instead of trusting the browser or
-     * stale local state, so another company's schedule cannot be released by a
-     * crafted request.
+     * Release only the future Subscription Schedule. The underlying Stripe
+     * subscription remains active and continues on its current price.
      */
     public function cancelScheduledPlanChange(CompanySubscription $subscription): bool
     {
@@ -268,6 +273,13 @@ class StripePlatformBillingService
             [],
             'muebledesk-schedule-release-'.$remoteScheduleId
         );
+
+        // Do not claim success until Stripe confirms the schedule is detached.
+        $verifiedSubscription = $this->retrieveSubscription($subscriptionId);
+        $remainingScheduleId = $this->stripeScheduleId($verifiedSubscription);
+        if ($remainingScheduleId !== '') {
+            throw new RuntimeException('Stripe did not detach the scheduled plan change. No local billing state was cleared. Please try again.');
+        }
 
         return true;
     }
