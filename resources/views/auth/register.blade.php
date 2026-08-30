@@ -36,23 +36,22 @@
                     <div><x-input-label for="name" value="Full legal name"/><x-text-input id="name" name="name" :value="old('name')" required autofocus autocomplete="name" placeholder="Your full name"/><x-input-error :messages="$errors->get('name')" class="mt-2"/></div>
                     <div><x-input-label for="email" value="Work email"/><x-text-input id="email" name="email" type="email" :value="old('email')" required autocomplete="email" placeholder="you@company.com"/><x-input-error :messages="$errors->get('email')" class="mt-2"/></div>
 
-                    <div class="grid gap-4 sm:grid-cols-2">
-                        <div>
-                            <x-input-label for="phone" value="Mobile number"/>
-                            <div class="mt-1 flex overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950">
-                                <select id="country_code" name="country_code" required aria-label="Mobile country code" class="max-w-[12rem] border-0 border-r border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold text-slate-700 focus:ring-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                    @foreach($countries as $iso => $country)
-                                        <option value="{{ $iso }}" @selected($selectedCountry === $iso)>{{ $country['name'] }} ({{ $country['dial'] }})</option>
-                                    @endforeach
-                                </select>
-                                <input id="phone" name="phone" value="{{ old('phone') }}" required autocomplete="tel-national" inputmode="tel" class="min-w-0 flex-1 border-0 bg-transparent px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:ring-0 dark:text-white" placeholder="12 345 6789">
-                            </div>
-                            <p class="mt-1 text-xs text-slate-500">Choose the country prefix, then enter the mobile number. We store it in international format.</p>
-                            <x-input-error :messages="$errors->get('country_code')" class="mt-2"/>
-                            <x-input-error :messages="$errors->get('phone')" class="mt-2"/>
+                    <div>
+                        <x-input-label for="phone" value="Mobile number"/>
+                        <div class="mt-1 grid grid-cols-[8.5rem_minmax(0,1fr)] overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm transition focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950">
+                            <select id="country_code" name="country_code" required aria-label="Mobile country code" class="h-12 w-full border-0 border-r border-slate-300 bg-slate-50 px-3 text-sm font-bold text-slate-700 outline-none focus:ring-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                @foreach($countries as $iso => $country)
+                                    <option value="{{ $iso }}" @selected($selectedCountry === $iso)>{{ $country['dial'] }} · {{ $iso }}</option>
+                                @endforeach
+                            </select>
+                            <input id="phone" name="phone" type="tel" value="{{ old('phone') }}" required autocomplete="tel-national" inputmode="tel" class="h-12 w-full min-w-0 border-0 bg-white px-4 text-base font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:ring-0 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-500" placeholder="12 345 6789">
                         </div>
-                        <div><x-input-label for="job_title" value="Job title / role"/><x-text-input id="job_title" name="job_title" :value="old('job_title')" required placeholder="Director, Finance Manager..."/><x-input-error :messages="$errors->get('job_title')" class="mt-2"/></div>
+                        <p class="mt-1 text-xs text-slate-500">Select the international prefix, then enter your mobile number without the country code.</p>
+                        <x-input-error :messages="$errors->get('country_code')" class="mt-2"/>
+                        <x-input-error :messages="$errors->get('phone')" class="mt-2"/>
                     </div>
+
+                    <div><x-input-label for="job_title" value="Job title / role"/><x-text-input id="job_title" name="job_title" :value="old('job_title')" required placeholder="Director, Finance Manager..."/><x-input-error :messages="$errors->get('job_title')" class="mt-2"/></div>
 
                     <div><x-input-label for="address" value="Correspondence address"/><textarea id="address" name="address" rows="3" class="block min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-white" required placeholder="Address used for account correspondence">{{ old('address') }}</textarea><x-input-error :messages="$errors->get('address')" class="mt-2"/></div>
 
