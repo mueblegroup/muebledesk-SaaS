@@ -21,7 +21,6 @@ class ClientPortalBillingController extends Controller
     public function index(Request $request, Company $company, StripePlatformBillingService $stripe): View
     {
         $this->authorizeCompany($request, $company);
-
         $company->load('subscription.plan', 'subscription.pendingPlan');
         $subscription = $company->subscription;
 
@@ -36,10 +35,7 @@ class ClientPortalBillingController extends Controller
 
         return view('client-portal.billing', [
             'company' => $company,
-            'plans' => PlatformSubscriptionPlan::where('is_active', true)
-                ->orderBy('sort_order')
-                ->orderBy('price')
-                ->get(),
+            'plans' => PlatformSubscriptionPlan::where('is_active', true)->orderBy('sort_order')->orderBy('price')->get(),
         ]);
     }
 
@@ -54,7 +50,7 @@ class ClientPortalBillingController extends Controller
                 $subscription = $company->subscription;
 
                 if ($subscription?->isActive()) {
-                    return back()->with('info', 'Your current subscription is active. Choose Upgrade or Change at renewal instead of purchasing a second subscription.');
+                    return $this->changePlan($request, $company, $plan, $stripe);
                 }
 
                 if ($this->hasRecoverableStripeSubscription($subscription)) {
@@ -74,7 +70,6 @@ class ClientPortalBillingController extends Controller
             });
         } catch (Throwable $exception) {
             report($exception);
-
             return back()->with('error', $exception->getMessage());
         }
     }
@@ -129,7 +124,6 @@ class ClientPortalBillingController extends Controller
                     }
 
                     $this->syncFromStripe($subscription, $result['subscription'], $plan);
-
                     return back()->with('success', 'Upgrade completed. Stripe charged the prorated difference and the higher plan is active now.');
                 }
 
@@ -152,7 +146,6 @@ class ClientPortalBillingController extends Controller
             });
         } catch (Throwable $exception) {
             report($exception);
-
             return back()->with('error', $exception->getMessage());
         }
     }
@@ -181,7 +174,6 @@ class ClientPortalBillingController extends Controller
             return back()->with('success', 'Scheduled plan change canceled. Your current subscription will continue unchanged.');
         } catch (Throwable $exception) {
             report($exception);
-
             return back()->with('error', $exception->getMessage());
         }
     }
@@ -202,7 +194,6 @@ class ClientPortalBillingController extends Controller
 
                 if (($session['payment_status'] ?? null) === 'paid') {
                     $this->activateFromCheckout($company, $session, $stripe);
-
                     return redirect()->route('client-portal.billing.index', $company)
                         ->with('success', 'Payment received. Your workspace subscription is now active.');
                 }
@@ -227,7 +218,6 @@ class ClientPortalBillingController extends Controller
             )['url']);
         } catch (Throwable $exception) {
             report($exception);
-
             return back()->with('error', $exception->getMessage());
         }
     }
@@ -236,7 +226,6 @@ class ClientPortalBillingController extends Controller
     {
         $plan = PlatformSubscriptionPlan::findOrFail((int) ($session['metadata']['plan_id'] ?? 0));
         $this->validateSubscriptionCheckout($company, $plan, $session);
-
         $subscriptionValue = $session['subscription'] ?? null;
 
         if (is_array($subscriptionValue)) {
@@ -372,7 +361,6 @@ class ClientPortalBillingController extends Controller
             $updates['pending_platform_subscription_plan_id'] = null;
             $updates['pending_plan_effective_at'] = null;
         } elseif ($pendingPlanId && ! $record->pending_plan_effective_at && ! $hasRemotePendingUpdate) {
-            // A pending immediate upgrade expired/failed without being applied.
             $updates['pending_platform_subscription_plan_id'] = null;
         }
 
@@ -382,7 +370,6 @@ class ClientPortalBillingController extends Controller
     private function subscriptionPriceId(array $subscription): string
     {
         $price = data_get($subscription, 'items.data.0.price');
-
         return is_array($price) ? (string) ($price['id'] ?? '') : (string) ($price ?? '');
     }
 
@@ -393,7 +380,6 @@ class ClientPortalBillingController extends Controller
         }
 
         $value = is_scalar($value) ? (string) $value : '';
-
         return $value !== '' ? $value : null;
     }
 
@@ -404,7 +390,6 @@ class ClientPortalBillingController extends Controller
 
         if ($ownerOnly) {
             abort_unless($membership->pivot->role === 'owner', 403);
-
             return;
         }
 
