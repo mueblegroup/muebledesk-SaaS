@@ -3,14 +3,18 @@
 namespace App\Providers;
 
 use App\Models\Client;
+use App\Models\CompanySubscription;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PlatformSetting;
 use App\Models\Quotation;
 use App\Models\Setting;
+use App\Models\SubscriptionPayment;
 use App\Models\User;
 use App\Observers\AuditableObserver;
 use App\Observers\ClientSubscriptionLimitObserver;
+use App\Observers\CompanySubscriptionNotificationObserver;
+use App\Observers\SubscriptionPaymentNotificationObserver;
 use App\Observers\SubscriptionRoleLimitObserver;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
@@ -68,5 +72,7 @@ class AppServiceProvider extends ServiceProvider
 
         User::observe(SubscriptionRoleLimitObserver::class);
         Client::observe(ClientSubscriptionLimitObserver::class);
+        CompanySubscription::observe(CompanySubscriptionNotificationObserver::class);
+        SubscriptionPayment::observe(SubscriptionPaymentNotificationObserver::class);
     }
 }
