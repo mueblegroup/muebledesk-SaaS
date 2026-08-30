@@ -76,8 +76,8 @@ class StripePlatformBillingService
         $this->assertCompanyFitsPlan($subscription, $targetPlan);
 
         $remote = $this->retrieveSubscription($subscription->stripe_subscription_id);
-        if (! in_array((string) ($remote['status'] ?? ''), ['active', 'trialing'], true)) {
-            throw new RuntimeException('Only an active Stripe subscription can be upgraded.');
+        if ((string) ($remote['status'] ?? '') !== 'active') {
+            throw new RuntimeException('Immediate paid upgrades require an active Stripe subscription that is not in a trial.');
         }
 
         if (($remote['collection_method'] ?? 'charge_automatically') !== 'charge_automatically') {
@@ -89,7 +89,7 @@ class StripePlatformBillingService
         }
 
         if ($this->stripeScheduleId($remote) !== '') {
-            throw new RuntimeException('A future Stripe subscription change is already scheduled. Cancel that scheduled change before upgrading.');
+            throw new RuntimeException('A legacy Stripe subscription schedule is attached. Clear it before changing plans.');
         }
 
         $item = Arr::get($remote, 'items.data.0');
@@ -103,15 +103,25 @@ class StripePlatformBillingService
         }
 
         $targetPriceId = $this->ensurePlanPrice($targetPlan);
-        $idempotencyKey = 'muebledesk-upgrade-'.$subscription->stripe_subscription_id.'-'.$targetPlan->id.'-'.($remote['current_period_end'] ?? 'period');
-
-        $updated = $this->request('POST', '/v1/subscriptions/'.$subscription->stripe_subscription_id, [
+        $payload = [
             'payment_behavior' => 'pending_if_incomplete',
             'proration_behavior' => 'always_invoice',
             'items[0][id]' => (string) $item['id'],
             'items[0][price]' => $targetPriceId,
+            'items[0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
             'expand[0]' => 'latest_invoice.payment_intent',
-        ], $idempotencyKey);
+        ];
+        $idempotencyKey = $this->mutationKey('upgrade', $subscription->stripe_subscription_id, $payload, [
+            $this->priceIdFromSubscription($remote),
+            (string) ($remote['current_period_end'] ?? ''),
+        ]);
+
+        $updated = $this->request(
+            'POST',
+            '/v1/subscriptions/'.$subscription->stripe_subscription_id,
+            $payload,
+            $idempotencyKey
+        );
 
         if (! empty($updated['pending_update'])) {
             $invoice = is_array($updated['latest_invoice'] ?? null) ? $updated['latest_invoice'] : [];
@@ -126,14 +136,15 @@ class StripePlatformBillingService
             ];
         }
 
-        $appliedPriceId = $this->priceIdFromSubscription($updated);
-        if ($appliedPriceId !== $targetPriceId) {
+        if ($this->priceIdFromSubscription($updated) !== $targetPriceId) {
             throw new RuntimeException('Stripe did not confirm the requested upgraded price. Local entitlements were not changed.');
         }
 
         $updated = $this->request('POST', '/v1/subscriptions/'.$subscription->stripe_subscription_id, [
             'metadata[company_id]' => (string) $subscription->company_id,
             'metadata[plan_id]' => (string) $targetPlan->id,
+            'metadata[pending_plan_id]' => '',
+            'metadata[pending_plan_effective_at]' => '',
         ], $idempotencyKey.'-metadata');
 
         return [
@@ -144,107 +155,178 @@ class StripePlatformBillingService
         ];
     }
 
-    public function schedulePlanChangeAtPeriodEnd(CompanySubscription $subscription, PlatformSubscriptionPlan $targetPlan): array
+    /**
+     * Same-interval downgrades use the normal Subscription API instead of a
+     * Subscription Schedule. Stripe switches the recurring Price with no
+     * proration, so there is no immediate credit/refund/charge and the next
+     * renewal uses the lower Price. MuebleDesk keeps the already-paid current
+     * plan entitlements locally until current_period_end.
+     */
+    public function deferDowngrade(CompanySubscription $subscription, PlatformSubscriptionPlan $targetPlan): array
     {
-        if (! $subscription->stripe_subscription_id) {
-            throw new RuntimeException('The current subscription is missing its Stripe subscription ID.');
+        if (! $subscription->stripe_subscription_id || ! $subscription->plan) {
+            throw new RuntimeException('An active local and Stripe subscription are required for a downgrade.');
         }
 
         $this->assertCompanyFitsPlan($subscription, $targetPlan);
 
+        if (! $targetPlan->sameBillingIntervalAs($subscription->plan)) {
+            throw new RuntimeException('Changing billing intervals mid-subscription is disabled. Cancel at period end, then purchase the new interval after the current period finishes.');
+        }
+
         $remote = $this->retrieveSubscription($subscription->stripe_subscription_id);
-        if (! in_array((string) ($remote['status'] ?? ''), ['active', 'trialing'], true)) {
-            throw new RuntimeException('Only an active Stripe subscription can schedule a future plan change.');
+        if ((string) ($remote['status'] ?? '') !== 'active') {
+            throw new RuntimeException('Only an active Stripe subscription can be downgraded.');
         }
-
         if ((bool) ($remote['cancel_at_period_end'] ?? false)) {
-            throw new RuntimeException('Auto-renewal is disabled. Re-enable renewal before scheduling a plan for the next billing period.');
+            throw new RuntimeException('This subscription is already set to cancel at period end. Resume it before changing plans.');
         }
-
         if (! empty($remote['pending_update'])) {
-            throw new RuntimeException('A Stripe subscription update is already awaiting payment. Resolve it before scheduling another change.');
+            throw new RuntimeException('A Stripe subscription update is already awaiting payment. Resolve it before changing plans again.');
+        }
+        if ($this->stripeScheduleId($remote) !== '') {
+            throw new RuntimeException('A legacy Stripe subscription schedule is attached. Clear it before changing plans.');
         }
 
         $item = Arr::get($remote, 'items.data.0');
         if (! is_array($item) || empty($item['id'])) {
-            throw new RuntimeException('Stripe did not return the subscription item required for this plan change.');
-        }
-
-        $currentPriceId = $this->priceIdFromSubscription($remote);
-        if ($currentPriceId === '') {
-            throw new RuntimeException('Stripe did not return the current subscription price.');
+            throw new RuntimeException('Stripe did not return the subscription item required for this downgrade.');
         }
 
         $currentCurrency = strtolower((string) Arr::get($item, 'price.currency', ''));
         if ($currentCurrency !== '' && $currentCurrency !== strtolower((string) $targetPlan->currency)) {
-            throw new RuntimeException('Scheduled plan changes cannot switch subscription currency.');
+            throw new RuntimeException('Plan changes cannot switch subscription currency.');
         }
 
-        $currentStart = (int) ($remote['current_period_start'] ?? 0);
         $currentEnd = (int) ($remote['current_period_end'] ?? 0);
-        if ($currentStart <= 0 || $currentEnd <= $currentStart || $currentEnd <= time()) {
-            throw new RuntimeException('Stripe did not return a valid future billing period for the plan change.');
+        if ($currentEnd <= time()) {
+            throw new RuntimeException('Stripe did not return a valid future renewal date.');
         }
 
         $targetPriceId = $this->ensurePlanPrice($targetPlan);
-        $scheduleId = $this->stripeScheduleId($remote);
-
-        if ($scheduleId !== '' && $subscription->stripe_subscription_schedule_id !== $scheduleId) {
-            throw new RuntimeException('This Stripe subscription already has an external schedule. Resolve that schedule before changing plans here.');
-        }
-
-        if ($scheduleId === '') {
-            $schedule = $this->request('POST', '/v1/subscription_schedules', [
-                'from_subscription' => $subscription->stripe_subscription_id,
-            ], 'muebledesk-schedule-create-'.$subscription->stripe_subscription_id.'-'.$currentEnd);
-            $scheduleId = (string) ($schedule['id'] ?? '');
-
-            if ($scheduleId === '') {
-                throw new RuntimeException('Stripe did not return a subscription schedule ID.');
-            }
-        }
-
-        $schedulePayload = [
-            'end_behavior' => 'release',
+        $payload = [
             'proration_behavior' => 'none',
-            'phases[0][start_date]' => $currentStart,
-            'phases[0][end_date]' => $currentEnd,
-            'phases[0][items][0][price]' => $currentPriceId,
-            'phases[0][items][0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
-            'phases[0][proration_behavior]' => 'none',
-            'phases[1][start_date]' => $currentEnd,
-            'phases[1][items][0][price]' => $targetPriceId,
-            'phases[1][items][0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
-            // Stripe API 2024-06-20 uses iterations for phase length. One
-            // iteration means one complete recurring interval of target Price.
-            'phases[1][iterations]' => 1,
-            'phases[1][proration_behavior]' => 'none',
-            'phases[1][metadata][company_id]' => (string) $subscription->company_id,
-            'phases[1][metadata][plan_id]' => (string) $targetPlan->id,
+            'items[0][id]' => (string) $item['id'],
+            'items[0][price]' => $targetPriceId,
+            'items[0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
+            'metadata[company_id]' => (string) $subscription->company_id,
+            // Keep metadata.plan_id on the entitlement plan until renewal.
+            'metadata[plan_id]' => (string) $subscription->platform_subscription_plan_id,
+            'metadata[pending_plan_id]' => (string) $targetPlan->id,
+            'metadata[pending_plan_effective_at]' => (string) $currentEnd,
         ];
 
-        // Stripe binds an idempotency key permanently to the first exact set of
-        // parameters. Include a payload fingerprint so a corrected deployment
-        // cannot collide with a key previously used by an older payload shape.
-        $payloadFingerprint = substr(hash('sha256', json_encode($schedulePayload, JSON_THROW_ON_ERROR)), 0, 24);
-        $schedule = $this->request(
+        $updated = $this->request(
             'POST',
-            '/v1/subscription_schedules/'.$scheduleId,
-            $schedulePayload,
-            'muebledesk-schedule-change-'.$scheduleId.'-'.$targetPlan->id.'-'.$currentEnd.'-'.$payloadFingerprint
+            '/v1/subscriptions/'.$subscription->stripe_subscription_id,
+            $payload,
+            $this->mutationKey('downgrade', $subscription->stripe_subscription_id, $payload, [
+                $this->priceIdFromSubscription($remote),
+                (string) $currentEnd,
+            ])
         );
 
+        if ($this->priceIdFromSubscription($updated) !== $targetPriceId) {
+            throw new RuntimeException('Stripe did not confirm the requested lower recurring price. No local downgrade was recorded.');
+        }
+
         return [
-            'schedule' => $schedule,
-            'schedule_id' => $scheduleId,
+            'subscription' => $updated,
             'effective_at' => $currentEnd,
         ];
     }
 
-    /**
-     * Release only the future Subscription Schedule. The underlying Stripe
-     * subscription remains active and continues on its current price.
-     */
+    /** Revert a deferred same-interval downgrade before it becomes effective. */
+    public function cancelDeferredPlanChange(CompanySubscription $subscription): bool
+    {
+        if (! $subscription->stripe_subscription_id || ! $subscription->plan) {
+            throw new RuntimeException('The current subscription is missing billing information.');
+        }
+
+        if (! $subscription->pending_platform_subscription_plan_id || ! $subscription->pending_plan_effective_at) {
+            return false;
+        }
+
+        $remote = $this->retrieveSubscription($subscription->stripe_subscription_id);
+        if ((string) ($remote['status'] ?? '') !== 'active') {
+            throw new RuntimeException('The Stripe subscription is not active.');
+        }
+        if ($this->stripeScheduleId($remote) !== '') {
+            throw new RuntimeException('A legacy Stripe schedule is attached. Clear that legacy schedule first.');
+        }
+
+        $item = Arr::get($remote, 'items.data.0');
+        if (! is_array($item) || empty($item['id'])) {
+            throw new RuntimeException('Stripe did not return the subscription item required to cancel the plan change.');
+        }
+
+        $currentPriceId = $this->ensurePlanPrice($subscription->plan);
+        if ($this->priceIdFromSubscription($remote) === $currentPriceId) {
+            return true;
+        }
+
+        $payload = [
+            'proration_behavior' => 'none',
+            'items[0][id]' => (string) $item['id'],
+            'items[0][price]' => $currentPriceId,
+            'items[0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
+            'metadata[company_id]' => (string) $subscription->company_id,
+            'metadata[plan_id]' => (string) $subscription->platform_subscription_plan_id,
+            'metadata[pending_plan_id]' => '',
+            'metadata[pending_plan_effective_at]' => '',
+        ];
+
+        $updated = $this->request(
+            'POST',
+            '/v1/subscriptions/'.$subscription->stripe_subscription_id,
+            $payload,
+            $this->mutationKey('cancel-plan-change', $subscription->stripe_subscription_id, $payload, [
+                $this->priceIdFromSubscription($remote),
+            ])
+        );
+
+        if ($this->priceIdFromSubscription($updated) !== $currentPriceId) {
+            throw new RuntimeException('Stripe did not restore the current recurring price. The pending plan change was not cleared locally.');
+        }
+
+        return true;
+    }
+
+    /** Standard SaaS cancellation: keep access until the current paid period ends. */
+    public function setCancelAtPeriodEnd(CompanySubscription $subscription, bool $cancel): array
+    {
+        $subscriptionId = (string) $subscription->stripe_subscription_id;
+        if ($subscriptionId === '') {
+            throw new RuntimeException('The current subscription is missing its Stripe subscription ID.');
+        }
+
+        $remote = $this->retrieveSubscription($subscriptionId);
+        if (! in_array((string) ($remote['status'] ?? ''), ['active', 'trialing', 'past_due'], true)) {
+            throw new RuntimeException('This Stripe subscription cannot change its cancellation state.');
+        }
+        if ($this->stripeScheduleId($remote) !== '') {
+            throw new RuntimeException('A legacy Stripe subscription schedule is attached. Clear it before canceling or resuming the subscription.');
+        }
+
+        $payload = ['cancel_at_period_end' => $cancel ? 'true' : 'false'];
+        $updated = $this->request(
+            'POST',
+            '/v1/subscriptions/'.$subscriptionId,
+            $payload,
+            $this->mutationKey($cancel ? 'cancel-subscription' : 'resume-subscription', $subscriptionId, $payload, [
+                (string) ($remote['current_period_end'] ?? ''),
+                (string) (int) (bool) ($remote['cancel_at_period_end'] ?? false),
+            ])
+        );
+
+        if ((bool) ($updated['cancel_at_period_end'] ?? false) !== $cancel) {
+            throw new RuntimeException('Stripe did not confirm the requested subscription cancellation state.');
+        }
+
+        return $updated;
+    }
+
+    /** Legacy cleanup only; normal plan changes no longer create schedules. */
     public function cancelScheduledPlanChange(CompanySubscription $subscription): bool
     {
         $subscriptionId = (string) $subscription->stripe_subscription_id;
@@ -253,32 +335,20 @@ class StripePlatformBillingService
         }
 
         $remote = $this->retrieveSubscription($subscriptionId);
-        if ((string) ($remote['id'] ?? '') !== $subscriptionId) {
-            throw new RuntimeException('Stripe subscription ownership could not be verified.');
-        }
-
         $remoteScheduleId = $this->stripeScheduleId($remote);
         if ($remoteScheduleId === '') {
             return false;
-        }
-
-        $localScheduleId = (string) $subscription->stripe_subscription_schedule_id;
-        if ($localScheduleId !== '' && $localScheduleId !== $remoteScheduleId) {
-            throw new RuntimeException('The local scheduled change does not match the schedule currently attached in Stripe. Refresh the billing page and try again.');
         }
 
         $this->request(
             'POST',
             '/v1/subscription_schedules/'.$remoteScheduleId.'/release',
             [],
-            'muebledesk-schedule-release-'.$remoteScheduleId
+            'muebledesk-legacy-schedule-release-'.$remoteScheduleId
         );
 
-        // Do not claim success until Stripe confirms the schedule is detached.
-        $verifiedSubscription = $this->retrieveSubscription($subscriptionId);
-        $remainingScheduleId = $this->stripeScheduleId($verifiedSubscription);
-        if ($remainingScheduleId !== '') {
-            throw new RuntimeException('Stripe did not detach the scheduled plan change. No local billing state was cleared. Please try again.');
+        if ($this->stripeScheduleId($this->retrieveSubscription($subscriptionId)) !== '') {
+            throw new RuntimeException('Stripe did not detach the legacy subscription schedule.');
         }
 
         return true;
@@ -430,6 +500,12 @@ class StripePlatformBillingService
     {
         $schedule = $subscription['schedule'] ?? null;
         return is_array($schedule) ? (string) ($schedule['id'] ?? '') : (string) ($schedule ?? '');
+    }
+
+    private function mutationKey(string $action, string $subscriptionId, array $payload, array $context = []): string
+    {
+        $fingerprint = substr(hash('sha256', json_encode([$payload, $context], JSON_THROW_ON_ERROR)), 0, 32);
+        return 'muebledesk-'.$action.'-'.$subscriptionId.'-'.$fingerprint;
     }
 
     private function request(string $method, string $path, array $formParams = [], ?string $idempotencyKey = null): array
