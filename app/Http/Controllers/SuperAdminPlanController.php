@@ -78,12 +78,20 @@ class SuperAdminPlanController extends Controller
 
     private function validatePlan(Request $request, ?PlatformSubscriptionPlan $plan = null): array
     {
+        $durationUnit = (string) $request->input('duration_unit');
+        $maxDuration = match ($durationUnit) {
+            'days' => 1095,
+            'months' => 36,
+            'years' => 3,
+            default => 1,
+        };
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100', Rule::unique('platform_subscription_plans', 'name')->ignore($plan)],
             'description' => ['nullable', 'string'],
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['required', 'string', 'size:3'],
-            'duration_value' => ['required', 'integer', 'min:1', 'max:3650'],
+            'duration_value' => ['required', 'integer', 'min:1', 'max:'.$maxDuration],
             'duration_unit' => ['required', Rule::in(['days', 'months', 'years'])],
             'admin_limit' => ['nullable', 'integer', 'min:0'],
             'employee_limit' => ['nullable', 'integer', 'min:0'],
