@@ -215,9 +215,16 @@ class StripePlatformBillingService
             'phases[1][start_date]' => $currentEnd,
             'phases[1][items][0][price]' => $targetPriceId,
             'phases[1][items][0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
-            'phases[1][duration][interval]' => $this->stripeInterval($targetPlan),
-            'phases[1][duration][interval_count]' => max(1, (int) $targetPlan->duration_value),
+            // The service pins Stripe API 2024-06-20. In that API version,
+            // schedule phase length is expressed with `iterations`; the newer
+            // phases[].duration object is not accepted and returns
+            // parameter_unknown. One iteration means one full billing interval
+            // of the target Price, after which end_behavior=release keeps the
+            // subscription running indefinitely on that target Price.
+            'phases[1][iterations]' => 1,
             'phases[1][proration_behavior]' => 'none',
+            'phases[1][metadata][company_id]' => (string) $subscription->company_id,
+            'phases[1][metadata][plan_id]' => (string) $targetPlan->id,
         ], 'muebledesk-schedule-change-'.$scheduleId.'-'.$targetPlan->id.'-'.$currentEnd);
 
         return [
