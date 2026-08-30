@@ -20,6 +20,7 @@
             ? 'Active'
             : ucfirst(str_replace('_', ' ', $subscription?->status ?? ''));
         $periodEnd = $subscription?->current_period_ends_at ?? $subscription?->expires_at;
+        $pendingPlan = $subscription?->pendingPlan;
     @endphp
 
     <div class="space-y-7">
@@ -35,13 +36,22 @@
                         @if($activeSubscription)
                             @if($subscription->auto_renew)
                                 <p class="mt-1 text-sm text-slate-600">{{ $displayStatus }} · Next renewal {{ $periodEnd?->format('d M Y H:i') ?? '—' }}</p>
-                                <p class="mt-2 text-xs text-indigo-700">Your existing Stripe subscription will renew automatically. No additional payment is required before the renewal date.</p>
                             @else
                                 <p class="mt-1 text-sm text-slate-600">{{ $displayStatus }} · Active until {{ $periodEnd?->format('d M Y H:i') ?? '—' }}</p>
-                                <p class="mt-2 text-xs text-indigo-700">Auto-renewal is disabled. You keep access for the full paid period and can subscribe again after this subscription ends.</p>
+                                <p class="mt-2 text-xs text-indigo-700">Auto-renewal is disabled. You keep access for the full paid period.</p>
+                            @endif
+
+                            @if($pendingPlan)
+                                <div class="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                    @if($subscription->pending_plan_effective_at)
+                                        <span class="font-bold">{{ $pendingPlan->name }}</span> is scheduled for {{ $subscription->pending_plan_effective_at->format('d M Y H:i') }}. Your current plan remains unchanged until then.
+                                    @else
+                                        Upgrade to <span class="font-bold">{{ $pendingPlan->name }}</span> is awaiting Stripe payment confirmation. Your current plan remains active until payment succeeds.
+                                    @endif
+                                </div>
                             @endif
                         @elseif($hasRecoverableStripeSubscription)
-                            <p class="mt-1 text-sm font-semibold text-amber-700">{{ $displayStatus }} · This existing Stripe subscription must be resolved before a new subscription can be created.</p>
+                            <p class="mt-1 text-sm font-semibold text-amber-700">{{ $displayStatus }} · Resolve this existing Stripe subscription before starting or changing plans.</p>
                             @if($subscription->last_renewal_error)
                                 <p class="mt-2 text-xs text-amber-700">{{ $subscription->last_renewal_error }}</p>
                             @endif
@@ -60,20 +70,32 @@
             </section>
         @endif
 
+        @if($activeSubscription && !$pendingPlan)
+            <div class="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600">
+                <span class="font-bold text-slate-900">Plan changes:</span>
+                same-cycle upgrades take effect immediately and Stripe charges only the prorated difference. Downgrades — and changes to a different billing interval — start at the next renewal so you keep everything already paid for.
+            </div>
+        @endif
+
         <section class="grid gap-6 lg:grid-cols-3">
             @forelse($plans as $plan)
                 @php
                     $isCurrentPlan = $activeSubscription
                         && (int) $activeSubscription->platform_subscription_plan_id === (int) $plan->id;
-                    $blockedByActiveSubscription = (bool) $activeSubscription;
+                    $isPendingPlan = $pendingPlan && (int) $pendingPlan->id === (int) $plan->id;
+                    $direction = $activeSubscription?->plan ? $plan->tierDirectionComparedTo($activeSubscription->plan) : null;
+                    $sameInterval = $activeSubscription?->plan ? $plan->sameBillingIntervalAs($activeSubscription->plan) : false;
+                    $isImmediateUpgrade = $activeSubscription && $direction === 1 && $sameInterval;
+                    $isScheduledChange = $activeSubscription && $direction !== null && $direction !== 0 && !$isImmediateUpgrade;
                 @endphp
 
-                <article class="rounded-3xl border {{ $isCurrentPlan ? 'border-indigo-400 ring-2 ring-indigo-100' : 'border-slate-200' }} bg-white p-6 shadow-sm">
-                    @if($isCurrentPlan)
-                        <span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-black text-indigo-700">Current plan</span>
-                    @endif
+                <article class="rounded-3xl border {{ $isCurrentPlan ? 'border-indigo-400 ring-2 ring-indigo-100' : ($isPendingPlan ? 'border-amber-300 ring-2 ring-amber-100' : 'border-slate-200') }} bg-white p-6 shadow-sm">
+                    <div class="flex flex-wrap gap-2">
+                        @if($isCurrentPlan)<span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-black text-indigo-700">Current plan</span>@endif
+                        @if($isPendingPlan)<span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">Pending change</span>@endif
+                    </div>
 
-                    <h2 class="{{ $isCurrentPlan ? 'mt-4' : '' }} text-xl font-black">{{ $plan->name }}</h2>
+                    <h2 class="{{ ($isCurrentPlan || $isPendingPlan) ? 'mt-4' : '' }} text-xl font-black">{{ $plan->name }}</h2>
                     <p class="mt-2 min-h-12 text-sm text-slate-500">{{ $plan->description }}</p>
                     <div class="mt-5">
                         <span class="text-3xl font-black">{{ $plan->currency }} {{ number_format($plan->price, 2) }}</span>
@@ -88,7 +110,9 @@
 
                     <ul class="mt-5 space-y-2 text-sm text-slate-600">
                         @foreach($plan->features ?? [] as $feature)
-                            <li>✓ {{ $feature }}</li>
+                            @unless($feature === \App\Models\PlatformSubscriptionPlan::FEATURE_CONFIGURATION_MARKER)
+                                <li>✓ {{ $feature }}</li>
+                            @endunless
                         @endforeach
                     </ul>
 
@@ -96,8 +120,26 @@
                         <div class="mt-6 rounded-2xl bg-indigo-50 px-5 py-3 text-center text-sm font-bold text-indigo-700">
                             {{ $subscription->auto_renew ? 'Current plan · renews automatically' : 'Current plan · active until period end' }}
                         </div>
-                    @elseif($blockedByActiveSubscription)
-                        <div class="mt-6 rounded-2xl bg-slate-100 px-5 py-3 text-center text-sm font-bold text-slate-500">Available after the current subscription ends</div>
+                    @elseif($activeSubscription && $pendingPlan)
+                        <div class="mt-6 rounded-2xl bg-slate-100 px-5 py-3 text-center text-sm font-bold text-slate-500">Finish the pending plan change first</div>
+                    @elseif($isImmediateUpgrade)
+                        <form method="POST" action="{{ route('client-portal.billing.checkout', [$company, $plan]) }}" class="mt-6">
+                            @csrf
+                            <button class="w-full rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white">Upgrade now · prorated</button>
+                            <p class="mt-2 text-center text-xs text-slate-500">Stripe charges only the remaining-period difference. Higher limits activate only after payment succeeds.</p>
+                        </form>
+                    @elseif($isScheduledChange)
+                        @if($subscription->auto_renew)
+                            <form method="POST" action="{{ route('client-portal.billing.checkout', [$company, $plan]) }}" class="mt-6">
+                                @csrf
+                                <button class="w-full rounded-2xl border border-indigo-300 bg-white px-5 py-3 text-sm font-bold text-indigo-700">{{ $direction === -1 ? 'Downgrade at next renewal' : 'Change at next renewal' }}</button>
+                                <p class="mt-2 text-center text-xs text-slate-500">No immediate charge or loss of current-plan access.</p>
+                            </form>
+                        @else
+                            <div class="mt-6 rounded-2xl bg-slate-100 px-5 py-3 text-center text-sm font-bold text-slate-500">Re-enable renewal before scheduling this plan</div>
+                        @endif
+                    @elseif($activeSubscription && $direction === null)
+                        <div class="mt-6 rounded-2xl bg-amber-50 px-5 py-3 text-center text-sm font-bold text-amber-700">Admin must set Billing rank before this plan can be compared safely</div>
                     @elseif($hasRecoverableStripeSubscription)
                         <div class="mt-6 rounded-2xl bg-amber-50 px-5 py-3 text-center text-sm font-bold text-amber-700">Resolve the existing subscription in Payment settings first</div>
                     @elseif($canPurchase)
