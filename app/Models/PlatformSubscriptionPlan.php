@@ -28,6 +28,7 @@ class PlatformSubscriptionPlan extends Model
         'name', 'slug', 'description', 'price', 'currency',
         'duration_value', 'duration_unit', 'admin_limit', 'employee_limit',
         'client_limit', 'auto_renew_default', 'features', 'is_active', 'sort_order',
+        'billing_rank', 'stripe_product_id', 'stripe_price_id',
     ];
 
     protected $casts = [
@@ -39,6 +40,7 @@ class PlatformSubscriptionPlan extends Model
         'auto_renew_default' => 'boolean',
         'features' => 'array',
         'is_active' => 'boolean',
+        'billing_rank' => 'integer',
     ];
 
     public function subscriptions(): HasMany
@@ -73,15 +75,10 @@ class PlatformSubscriptionPlan extends Model
         $configured = $features->contains(self::FEATURE_CONFIGURATION_MARKER);
         $known = $features->intersect(array_keys(self::FEATURE_OPTIONS));
 
-        // Plans explicitly saved by the current plan editor are authoritative,
-        // including the valid case where zero structured features are selected.
         if ($configured) {
             return $features->contains($feature);
         }
 
-        // Preserve subscriptions created before structured entitlement keys existed.
-        // As soon as a legacy plan is saved, the configuration marker is added and
-        // its selected checkboxes become authoritative.
         if ($known->isEmpty()) {
             return true;
         }
@@ -94,6 +91,37 @@ class PlatformSubscriptionPlan extends Model
         $unit = $this->duration_value === 1 ? str($this->duration_unit)->singular() : $this->duration_unit;
 
         return $this->duration_value.' '.$unit;
+    }
+
+    public function sameBillingIntervalAs(self $other): bool
+    {
+        return $this->duration_unit === $other->duration_unit
+            && (int) $this->duration_value === (int) $other->duration_value;
+    }
+
+    /**
+     * Returns 1 for upgrade, -1 for downgrade, 0 for the same tier, and null
+     * when legacy plan data is too ambiguous to classify safely.
+     */
+    public function tierDirectionComparedTo(self $current): ?int
+    {
+        if ((int) $this->id === (int) $current->id) {
+            return 0;
+        }
+
+        if ((int) $this->billing_rank > 0 && (int) $current->billing_rank > 0) {
+            return (int) $this->billing_rank <=> (int) $current->billing_rank;
+        }
+
+        // Safe legacy fallback: price only defines tier order when the plans
+        // share the same currency and billing interval. Admins should set an
+        // explicit billing rank for mixed monthly/yearly or multi-currency tiers.
+        if ($this->sameBillingIntervalAs($current)
+            && strtoupper((string) $this->currency) === strtoupper((string) $current->currency)) {
+            return ((float) $this->price) <=> ((float) $current->price);
+        }
+
+        return null;
     }
 
     public function getPricePerSeatAttribute(): float
