@@ -227,14 +227,42 @@ class StripePlatformBillingService
         ];
     }
 
-    public function cancelScheduledPlanChange(CompanySubscription $subscription): void
+    /**
+     * Release the schedule currently attached to this exact Stripe subscription.
+     * The schedule ID is re-read from Stripe instead of trusting the browser or
+     * stale local state, so another company's schedule cannot be released by a
+     * crafted request.
+     */
+    public function cancelScheduledPlanChange(CompanySubscription $subscription): bool
     {
-        $scheduleId = (string) $subscription->stripe_subscription_schedule_id;
-        if ($scheduleId === '') {
-            return;
+        $subscriptionId = (string) $subscription->stripe_subscription_id;
+        if ($subscriptionId === '') {
+            throw new RuntimeException('The current subscription is missing its Stripe subscription ID.');
         }
 
-        $this->request('POST', '/v1/subscription_schedules/'.$scheduleId.'/release', [], 'muebledesk-schedule-release-'.$scheduleId);
+        $remote = $this->retrieveSubscription($subscriptionId);
+        if ((string) ($remote['id'] ?? '') !== $subscriptionId) {
+            throw new RuntimeException('Stripe subscription ownership could not be verified.');
+        }
+
+        $remoteScheduleId = $this->stripeScheduleId($remote);
+        if ($remoteScheduleId === '') {
+            return false;
+        }
+
+        $localScheduleId = (string) $subscription->stripe_subscription_schedule_id;
+        if ($localScheduleId !== '' && $localScheduleId !== $remoteScheduleId) {
+            throw new RuntimeException('The local scheduled change does not match the schedule currently attached in Stripe. Refresh the billing page and try again.');
+        }
+
+        $this->request(
+            'POST',
+            '/v1/subscription_schedules/'.$remoteScheduleId.'/release',
+            [],
+            'muebledesk-schedule-release-'.$remoteScheduleId
+        );
+
+        return true;
     }
 
     public function ensurePlanPrice(PlatformSubscriptionPlan $plan): string
