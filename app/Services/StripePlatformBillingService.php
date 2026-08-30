@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Company;
+use App\Models\CompanySubscription;
 use App\Models\PlatformSubscriptionPlan;
 use GuzzleHttp\Client;
 use Illuminate\Support\Arr;
@@ -23,11 +24,7 @@ class StripePlatformBillingService
             'is_enabled' => true,
         ]);
 
-        $interval = match ($plan->duration_unit) {
-            'days' => 'day',
-            'years' => 'year',
-            default => 'month',
-        };
+        $priceId = $this->ensurePlanPrice($plan);
 
         $payload = [
             'mode' => 'subscription',
@@ -36,12 +33,7 @@ class StripePlatformBillingService
             'client_reference_id' => (string) $company->id,
             'customer_email' => $company->email ?: $company->owners()->value('email'),
             'line_items[0][quantity]' => 1,
-            'line_items[0][price_data][currency]' => strtolower($plan->currency),
-            'line_items[0][price_data][unit_amount]' => (int) round(((float) $plan->price) * 100),
-            'line_items[0][price_data][product_data][name]' => $plan->name,
-            'line_items[0][price_data][product_data][description]' => $plan->description ?: 'MuebleDesk subscription',
-            'line_items[0][price_data][recurring][interval]' => $interval,
-            'line_items[0][price_data][recurring][interval_count]' => $plan->duration_value,
+            'line_items[0][price]' => $priceId,
             'metadata[company_id]' => (string) $company->id,
             'metadata[plan_id]' => (string) $plan->id,
             'metadata[auto_renew]' => $autoRenew ? '1' : '0',
@@ -51,8 +43,6 @@ class StripePlatformBillingService
         ];
 
         if (! $autoRenew) {
-            // The customer gets the entire paid period. Stripe keeps the
-            // subscription active until period end, then cancels it.
             $payload['subscription_data[cancel_at_period_end]'] = 'true';
         }
 
@@ -60,6 +50,9 @@ class StripePlatformBillingService
 
         $subscription->update([
             'platform_subscription_plan_id' => $plan->id,
+            'pending_platform_subscription_plan_id' => null,
+            'pending_plan_effective_at' => null,
+            'stripe_subscription_schedule_id' => null,
             'stripe_checkout_session_id' => Arr::get($session, 'id'),
             'status' => 'incomplete',
             'auto_renew' => $autoRenew,
@@ -67,6 +60,239 @@ class StripePlatformBillingService
         ]);
 
         return $session;
+    }
+
+    /**
+     * Upgrade an existing subscription immediately. Stripe creates and attempts
+     * the prorated invoice now. pending_if_incomplete means the higher-priced
+     * subscription item is not applied unless that invoice can be paid.
+     */
+    public function upgradeSubscription(CompanySubscription $subscription, PlatformSubscriptionPlan $targetPlan): array
+    {
+        if (! $subscription->stripe_subscription_id) {
+            throw new RuntimeException('The current subscription is missing its Stripe subscription ID.');
+        }
+
+        $remote = $this->retrieveSubscription($subscription->stripe_subscription_id);
+        if (! in_array((string) ($remote['status'] ?? ''), ['active', 'trialing'], true)) {
+            throw new RuntimeException('Only an active Stripe subscription can be upgraded.');
+        }
+
+        if (($remote['collection_method'] ?? 'charge_automatically') !== 'charge_automatically') {
+            throw new RuntimeException('Immediate upgrades require automatic Stripe payment collection.');
+        }
+
+        if (! empty($remote['pending_update'])) {
+            throw new RuntimeException('A Stripe subscription update is already awaiting payment. Resolve it before changing plans again.');
+        }
+
+        if ($this->stripeScheduleId($remote) !== '') {
+            throw new RuntimeException('A future Stripe subscription change is already scheduled. Cancel that scheduled change before upgrading.');
+        }
+
+        $item = Arr::get($remote, 'items.data.0');
+        if (! is_array($item) || empty($item['id'])) {
+            throw new RuntimeException('Stripe did not return the subscription item required for this upgrade.');
+        }
+
+        $currentCurrency = strtolower((string) Arr::get($item, 'price.currency', ''));
+        if ($currentCurrency !== '' && $currentCurrency !== strtolower((string) $targetPlan->currency)) {
+            throw new RuntimeException('Mid-cycle plan changes cannot switch subscription currency.');
+        }
+
+        $targetPriceId = $this->ensurePlanPrice($targetPlan);
+        $idempotencyKey = 'muebledesk-upgrade-'.$subscription->stripe_subscription_id.'-'.$targetPlan->id.'-'.($remote['current_period_end'] ?? 'period');
+
+        $updated = $this->request('POST', '/v1/subscriptions/'.$subscription->stripe_subscription_id, [
+            'payment_behavior' => 'pending_if_incomplete',
+            'proration_behavior' => 'always_invoice',
+            'items[0][id]' => (string) $item['id'],
+            'items[0][price]' => $targetPriceId,
+            'expand[0]' => 'latest_invoice.payment_intent',
+        ], $idempotencyKey);
+
+        if (! empty($updated['pending_update'])) {
+            $invoice = is_array($updated['latest_invoice'] ?? null) ? $updated['latest_invoice'] : [];
+
+            return [
+                'applied' => false,
+                'subscription' => $updated,
+                'invoice_url' => $invoice['hosted_invoice_url'] ?? null,
+                'payment_intent_status' => is_array($invoice['payment_intent'] ?? null)
+                    ? ($invoice['payment_intent']['status'] ?? null)
+                    : null,
+            ];
+        }
+
+        $appliedPriceId = $this->priceIdFromSubscription($updated);
+        if ($appliedPriceId !== $targetPriceId) {
+            throw new RuntimeException('Stripe did not confirm the requested upgraded price. Local entitlements were not changed.');
+        }
+
+        // Metadata is non-billing state. Update it only after the paid price
+        // change has been applied so webhook reconciliation can identify the plan.
+        $updated = $this->request('POST', '/v1/subscriptions/'.$subscription->stripe_subscription_id, [
+            'metadata[company_id]' => (string) $subscription->company_id,
+            'metadata[plan_id]' => (string) $targetPlan->id,
+        ], $idempotencyKey.'-metadata');
+
+        return [
+            'applied' => true,
+            'subscription' => $updated,
+            'invoice_url' => null,
+            'payment_intent_status' => null,
+        ];
+    }
+
+    /**
+     * Schedule a downgrade (or a billing-interval change) for the next renewal.
+     * The customer keeps the plan already paid for, and Stripe changes the price
+     * only when the current period ends.
+     */
+    public function schedulePlanChangeAtPeriodEnd(CompanySubscription $subscription, PlatformSubscriptionPlan $targetPlan): array
+    {
+        if (! $subscription->stripe_subscription_id) {
+            throw new RuntimeException('The current subscription is missing its Stripe subscription ID.');
+        }
+
+        $remote = $this->retrieveSubscription($subscription->stripe_subscription_id);
+        if (! in_array((string) ($remote['status'] ?? ''), ['active', 'trialing'], true)) {
+            throw new RuntimeException('Only an active Stripe subscription can schedule a future plan change.');
+        }
+
+        if ((bool) ($remote['cancel_at_period_end'] ?? false)) {
+            throw new RuntimeException('Auto-renewal is disabled. Re-enable renewal before scheduling a plan for the next billing period.');
+        }
+
+        if (! empty($remote['pending_update'])) {
+            throw new RuntimeException('A Stripe subscription update is already awaiting payment. Resolve it before scheduling another change.');
+        }
+
+        $item = Arr::get($remote, 'items.data.0');
+        if (! is_array($item) || empty($item['id'])) {
+            throw new RuntimeException('Stripe did not return the subscription item required for this plan change.');
+        }
+
+        $currentPriceId = $this->priceIdFromSubscription($remote);
+        if ($currentPriceId === '') {
+            throw new RuntimeException('Stripe did not return the current subscription price.');
+        }
+
+        $currentCurrency = strtolower((string) Arr::get($item, 'price.currency', ''));
+        if ($currentCurrency !== '' && $currentCurrency !== strtolower((string) $targetPlan->currency)) {
+            throw new RuntimeException('Scheduled plan changes cannot switch subscription currency.');
+        }
+
+        $currentStart = (int) ($remote['current_period_start'] ?? 0);
+        $currentEnd = (int) ($remote['current_period_end'] ?? 0);
+        if ($currentStart <= 0 || $currentEnd <= $currentStart || $currentEnd <= time()) {
+            throw new RuntimeException('Stripe did not return a valid future billing period for the plan change.');
+        }
+
+        $targetPriceId = $this->ensurePlanPrice($targetPlan);
+        $scheduleId = $this->stripeScheduleId($remote);
+
+        if ($scheduleId !== '' && $subscription->stripe_subscription_schedule_id !== $scheduleId) {
+            throw new RuntimeException('This Stripe subscription already has an external schedule. Resolve that schedule before changing plans here.');
+        }
+
+        if ($scheduleId === '') {
+            $schedule = $this->request('POST', '/v1/subscription_schedules', [
+                'from_subscription' => $subscription->stripe_subscription_id,
+            ], 'muebledesk-schedule-create-'.$subscription->stripe_subscription_id.'-'.$currentEnd);
+            $scheduleId = (string) ($schedule['id'] ?? '');
+
+            if ($scheduleId === '') {
+                throw new RuntimeException('Stripe did not return a subscription schedule ID.');
+            }
+        }
+
+        $targetInterval = $this->stripeInterval($targetPlan);
+        $schedule = $this->request('POST', '/v1/subscription_schedules/'.$scheduleId, [
+            'end_behavior' => 'release',
+            'proration_behavior' => 'none',
+            'phases[0][start_date]' => $currentStart,
+            'phases[0][end_date]' => $currentEnd,
+            'phases[0][items][0][price]' => $currentPriceId,
+            'phases[0][items][0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
+            'phases[0][proration_behavior]' => 'none',
+            'phases[1][start_date]' => $currentEnd,
+            'phases[1][items][0][price]' => $targetPriceId,
+            'phases[1][items][0][quantity]' => max(1, (int) ($item['quantity'] ?? 1)),
+            'phases[1][duration][interval]' => $targetInterval,
+            'phases[1][duration][interval_count]' => max(1, (int) $targetPlan->duration_value),
+            'phases[1][proration_behavior]' => 'none',
+        ], 'muebledesk-schedule-change-'.$scheduleId.'-'.$targetPlan->id.'-'.$currentEnd);
+
+        return [
+            'schedule' => $schedule,
+            'schedule_id' => $scheduleId,
+            'effective_at' => $currentEnd,
+        ];
+    }
+
+    public function cancelScheduledPlanChange(CompanySubscription $subscription): void
+    {
+        $scheduleId = (string) $subscription->stripe_subscription_schedule_id;
+        if ($scheduleId === '') {
+            return;
+        }
+
+        $this->request(
+            'POST',
+            '/v1/subscription_schedules/'.$scheduleId.'/release',
+            [],
+            'muebledesk-schedule-release-'.$scheduleId
+        );
+    }
+
+    public function ensurePlanPrice(PlatformSubscriptionPlan $plan): string
+    {
+        if ($plan->stripe_price_id) {
+            return (string) $plan->stripe_price_id;
+        }
+
+        $productId = (string) ($plan->stripe_product_id ?? '');
+        if ($productId === '') {
+            $product = $this->request('POST', '/v1/products', [
+                'name' => $plan->name,
+                'description' => $plan->description ?: 'MuebleDesk subscription plan',
+                'metadata[platform_plan_id]' => (string) $plan->id,
+            ], 'muebledesk-product-'.$plan->id);
+            $productId = (string) ($product['id'] ?? '');
+
+            if ($productId === '') {
+                throw new RuntimeException('Stripe did not return a product ID for this plan.');
+            }
+
+            $plan->forceFill(['stripe_product_id' => $productId])->save();
+        }
+
+        $fingerprint = hash('sha256', implode('|', [
+            $plan->id,
+            (string) $plan->price,
+            strtoupper((string) $plan->currency),
+            $plan->duration_unit,
+            $plan->duration_value,
+        ]));
+
+        $price = $this->request('POST', '/v1/prices', [
+            'product' => $productId,
+            'currency' => strtolower((string) $plan->currency),
+            'unit_amount' => (int) round(((float) $plan->price) * 100),
+            'recurring[interval]' => $this->stripeInterval($plan),
+            'recurring[interval_count]' => max(1, (int) $plan->duration_value),
+            'metadata[platform_plan_id]' => (string) $plan->id,
+        ], 'muebledesk-price-'.$fingerprint);
+
+        $priceId = (string) ($price['id'] ?? '');
+        if ($priceId === '') {
+            throw new RuntimeException('Stripe did not return a price ID for this plan.');
+        }
+
+        $plan->forceFill(['stripe_price_id' => $priceId])->save();
+
+        return $priceId;
     }
 
     public function createBillingPortalSession(Company $company, string $returnUrl): array
@@ -121,16 +347,48 @@ class StripePlatformBillingService
         return json_decode($payload, true, flags: JSON_THROW_ON_ERROR);
     }
 
-    private function request(string $method, string $path, array $formParams = []): array
+    private function stripeInterval(PlatformSubscriptionPlan $plan): string
+    {
+        return match ($plan->duration_unit) {
+            'days' => 'day',
+            'years' => 'year',
+            default => 'month',
+        };
+    }
+
+    private function priceIdFromSubscription(array $subscription): string
+    {
+        $price = Arr::get($subscription, 'items.data.0.price');
+
+        return is_array($price)
+            ? (string) ($price['id'] ?? '')
+            : (string) ($price ?? '');
+    }
+
+    private function stripeScheduleId(array $subscription): string
+    {
+        $schedule = $subscription['schedule'] ?? null;
+
+        return is_array($schedule)
+            ? (string) ($schedule['id'] ?? '')
+            : (string) ($schedule ?? '');
+    }
+
+    private function request(string $method, string $path, array $formParams = [], ?string $idempotencyKey = null): array
     {
         $secret = (string) config('services.stripe.secret');
         if ($secret === '') {
             throw new RuntimeException('STRIPE_SECRET is not configured.');
         }
 
+        $headers = ['Stripe-Version' => '2024-06-20'];
+        if ($idempotencyKey) {
+            $headers['Idempotency-Key'] = substr($idempotencyKey, 0, 255);
+        }
+
         $options = [
             'auth' => [$secret, ''],
-            'headers' => ['Stripe-Version' => '2024-06-20'],
+            'headers' => $headers,
         ];
         $options[$method === 'GET' ? 'query' : 'form_params'] = $formParams;
 
