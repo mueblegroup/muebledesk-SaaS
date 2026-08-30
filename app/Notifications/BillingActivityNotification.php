@@ -28,9 +28,12 @@ class BillingActivityNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
+        $recipientName = data_get($notifiable, 'name');
+        $greeting = filled($recipientName) ? 'Hello '.$recipientName.',' : 'Hello,';
+
         $mail = (new MailMessage)
             ->subject($this->subject)
-            ->greeting('Hello '.$notifiable->name.',')
+            ->greeting($greeting)
             ->line($this->headline)
             ->line('Company: '.$this->companyName);
 
