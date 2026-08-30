@@ -16,7 +16,8 @@ class CompanySubscriptionNotificationObserver
             return;
         }
 
-        if ($subscription->wasChanged('platform_subscription_plan_id')) {
+        if ($subscription->wasChanged('platform_subscription_plan_id')
+            && in_array((string) $subscription->status, ['active', 'trialing'], true)) {
             $oldPlan = PlatformSubscriptionPlan::find((int) $subscription->getOriginal('platform_subscription_plan_id'));
             $newPlan = $subscription->plan;
 
