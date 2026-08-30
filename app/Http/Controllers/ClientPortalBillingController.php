@@ -156,22 +156,27 @@ class ClientPortalBillingController extends Controller
         $company->load('subscription.pendingPlan');
         $subscription = $company->subscription;
 
-        if (! $subscription?->pending_platform_subscription_plan_id || ! $subscription->pending_plan_effective_at) {
-            return back()->with('info', 'There is no scheduled future plan change to cancel.');
+        if (! $subscription?->stripe_subscription_id) {
+            return back()->with('info', 'There is no Stripe subscription schedule to cancel.');
         }
 
         try {
-            Cache::lock('platform-plan-change:'.$company->id, 45)->block(5, function () use ($subscription, $stripe): void {
+            $released = Cache::lock('platform-plan-change:'.$company->id, 45)->block(5, function () use ($subscription, $stripe): bool {
                 $subscription->refresh();
-                $stripe->cancelScheduledPlanChange($subscription);
+                $released = $stripe->cancelScheduledPlanChange($subscription);
+
                 $subscription->update([
                     'pending_platform_subscription_plan_id' => null,
                     'pending_plan_effective_at' => null,
                     'stripe_subscription_schedule_id' => null,
                 ]);
+
+                return $released;
             });
 
-            return back()->with('success', 'Scheduled plan change canceled. Your current subscription will continue unchanged.');
+            return $released
+                ? back()->with('success', 'Scheduled Stripe change canceled. Your current subscription will continue unchanged.')
+                : back()->with('info', 'Stripe no longer has a future schedule attached to this subscription. Local schedule state was cleared.');
         } catch (Throwable $exception) {
             report($exception);
             return back()->with('error', $exception->getMessage());
@@ -209,6 +214,11 @@ class ClientPortalBillingController extends Controller
     public function portal(Request $request, Company $company, StripePlatformBillingService $stripe): RedirectResponse
     {
         $this->authorizeCompany($request, $company, ownerOnly: true);
+
+        if ($request->input('billing_action') === 'cancel_schedule') {
+            return $this->cancelScheduledPlanChange($request, $company, $stripe);
+        }
+
         $company->load('subscription');
 
         try {
@@ -338,11 +348,13 @@ class ClientPortalBillingController extends Controller
             ?? PlatformSubscriptionPlan::find((int) ($subscription['metadata']['plan_id'] ?? 0));
         $pendingPlanId = $record->pending_platform_subscription_plan_id;
         $hasRemotePendingUpdate = ! empty($subscription['pending_update']);
+        $remoteScheduleId = $this->stripeId($subscription['schedule'] ?? null);
 
         $updates = [
             'status' => $status,
             'stripe_customer_id' => $this->stripeId($subscription['customer'] ?? null) ?: $record->stripe_customer_id,
             'stripe_subscription_id' => $subscription['id'] ?? $record->stripe_subscription_id,
+            'stripe_subscription_schedule_id' => $remoteScheduleId,
             'starts_at' => $start,
             'expires_at' => $remoteEnd ?? $record->expires_at,
             'current_period_starts_at' => $start,
@@ -362,6 +374,11 @@ class ClientPortalBillingController extends Controller
             $updates['pending_plan_effective_at'] = null;
         } elseif ($pendingPlanId && ! $record->pending_plan_effective_at && ! $hasRemotePendingUpdate) {
             $updates['pending_platform_subscription_plan_id'] = null;
+        }
+
+        if (! $remoteScheduleId && $record->pending_plan_effective_at) {
+            $updates['pending_platform_subscription_plan_id'] = null;
+            $updates['pending_plan_effective_at'] = null;
         }
 
         $record->update($updates);
