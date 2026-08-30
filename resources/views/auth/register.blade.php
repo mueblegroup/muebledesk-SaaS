@@ -15,6 +15,7 @@
                     && filled(config("services.{$provider}.client_id"))
                     && filled(config("services.{$provider}.client_secret"))
                     && filled(config("services.{$provider}.redirect")));
+            $selectedCountry = old('country_code', 'MY');
         @endphp
 
         @if (class_exists(\Laravel\Socialite\Facades\Socialite::class) && $ssoProviders->isNotEmpty())
@@ -34,14 +35,36 @@
                 <div class="space-y-4">
                     <div><x-input-label for="name" value="Full legal name"/><x-text-input id="name" name="name" :value="old('name')" required autofocus autocomplete="name" placeholder="Your full name"/><x-input-error :messages="$errors->get('name')" class="mt-2"/></div>
                     <div><x-input-label for="email" value="Work email"/><x-text-input id="email" name="email" type="email" :value="old('email')" required autocomplete="email" placeholder="you@company.com"/><x-input-error :messages="$errors->get('email')" class="mt-2"/></div>
+
                     <div class="grid gap-4 sm:grid-cols-2">
-                        <div><x-input-label for="phone" value="Mobile number"/><x-text-input id="phone" name="phone" :value="old('phone')" required autocomplete="tel" placeholder="+60 12 345 6789"/><x-input-error :messages="$errors->get('phone')" class="mt-2"/></div>
+                        <div>
+                            <x-input-label for="phone" value="Mobile number"/>
+                            <div class="mt-1 flex overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950">
+                                <select id="country_code" name="country_code" required aria-label="Mobile country code" class="max-w-[12rem] border-0 border-r border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold text-slate-700 focus:ring-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    @foreach($countries as $iso => $country)
+                                        <option value="{{ $iso }}" @selected($selectedCountry === $iso)>{{ $country['name'] }} ({{ $country['dial'] }})</option>
+                                    @endforeach
+                                </select>
+                                <input id="phone" name="phone" value="{{ old('phone') }}" required autocomplete="tel-national" inputmode="tel" class="min-w-0 flex-1 border-0 bg-transparent px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:ring-0 dark:text-white" placeholder="12 345 6789">
+                            </div>
+                            <p class="mt-1 text-xs text-slate-500">Choose the country prefix, then enter the mobile number. We store it in international format.</p>
+                            <x-input-error :messages="$errors->get('country_code')" class="mt-2"/>
+                            <x-input-error :messages="$errors->get('phone')" class="mt-2"/>
+                        </div>
                         <div><x-input-label for="job_title" value="Job title / role"/><x-text-input id="job_title" name="job_title" :value="old('job_title')" required placeholder="Director, Finance Manager..."/><x-input-error :messages="$errors->get('job_title')" class="mt-2"/></div>
                     </div>
+
                     <div><x-input-label for="address" value="Correspondence address"/><textarea id="address" name="address" rows="3" class="block min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-white" required placeholder="Address used for account correspondence">{{ old('address') }}</textarea><x-input-error :messages="$errors->get('address')" class="mt-2"/></div>
-                    <div class="grid gap-4 sm:grid-cols-2">
-                        <div><x-input-label for="country_code" value="Country code"/><x-text-input id="country_code" name="country_code" maxlength="2" class="uppercase" :value="old('country_code','MY')" required/><x-input-error :messages="$errors->get('country_code')" class="mt-2"/></div>
-                        <div><x-input-label for="preferred_timezone" value="Timezone"/><x-text-input id="preferred_timezone" name="preferred_timezone" :value="old('preferred_timezone','Asia/Kuala_Lumpur')" required/><x-input-error :messages="$errors->get('preferred_timezone')" class="mt-2"/></div>
+
+                    <div>
+                        <x-input-label for="preferred_timezone" value="Timezone"/>
+                        <select id="preferred_timezone" name="preferred_timezone" required autocomplete="off" class="mt-1 block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+                            @foreach($timezones as $timezone)
+                                <option value="{{ $timezone }}" @selected(old('preferred_timezone', 'Asia/Kuala_Lumpur') === $timezone)>{{ str_replace('_', ' ', $timezone) }}</option>
+                            @endforeach
+                        </select>
+                        <p class="mt-1 text-xs text-slate-500">Used for invoices, reports, recurring jobs and account activity timestamps.</p>
+                        <x-input-error :messages="$errors->get('preferred_timezone')" class="mt-2"/>
                     </div>
                 </div>
             </section>
@@ -59,7 +82,7 @@
                 <span>I confirm that these details are accurate and that I am authorised to use this client portal account for company onboarding and billing.</span>
             </label>
 
-            <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><strong>Email verification is required.</strong> You cannot create a company or access billing until the verification link is completed. WhatsApp verification can be added later.</div>
+            <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><strong>Email verification is required.</strong> After registration we send a signed verification link to your email. Company creation, client portal access and billing remain blocked until the address is verified.</div>
 
             <x-primary-button class="w-full">Create account and verify email</x-primary-button>
         </form>
