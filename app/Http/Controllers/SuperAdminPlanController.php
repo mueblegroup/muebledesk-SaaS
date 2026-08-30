@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompanySubscription;
 use App\Models\PlatformSubscriptionPlan;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,14 +41,18 @@ class SuperAdminPlanController extends Controller
             || strtoupper((string) $plan->currency) !== strtoupper((string) $validated['currency'])
             || (int) $plan->duration_value !== (int) $validated['duration_value']
             || (string) $plan->duration_unit !== (string) $validated['duration_unit'];
+        $hasPendingChanges = CompanySubscription::where('pending_platform_subscription_plan_id', $plan->id)->exists();
+
+        if ($billingPriceChanged && $hasPendingChanges) {
+            return back()->withErrors([
+                'price' => 'This plan is already referenced by a pending Stripe plan change. Wait for that change to complete or clear it before changing price, currency, or billing duration.',
+            ]);
+        }
 
         $payload = $validated + [
             'slug' => $this->uniqueSlug($validated['name'], $plan),
         ];
 
-        // Stripe Prices are immutable for amount/currency/recurrence. Clearing
-        // the cached ID causes the next checkout/plan change to create a new
-        // reusable Price while existing subscriptions keep their historical one.
         if ($billingPriceChanged) {
             $payload['stripe_price_id'] = null;
         }
@@ -59,7 +64,12 @@ class SuperAdminPlanController extends Controller
 
     public function destroy(PlatformSubscriptionPlan $plan): RedirectResponse
     {
-        abort_if($plan->subscriptions()->exists(), 422, 'Plans with subscriptions cannot be deleted. Disable the plan instead.');
+        $hasPendingChanges = CompanySubscription::where('pending_platform_subscription_plan_id', $plan->id)->exists();
+        abort_if(
+            $plan->subscriptions()->exists() || $hasPendingChanges,
+            422,
+            'Plans used by active or pending subscriptions cannot be deleted. Disable the plan instead.'
+        );
 
         $plan->delete();
 
