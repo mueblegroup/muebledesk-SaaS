@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\MyInvoisSettingController;
 use App\Http\Controllers\Admin\SettingController as AdminSettingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\ClientPortalBillingController;
+use App\Http\Controllers\ClientPortalBillingHistoryController;
 use App\Http\Controllers\ClientPortalController;
 use App\Http\Controllers\CompanyOnboardingController;
 use App\Http\Controllers\CustomerEInvoiceProfileController;
@@ -67,6 +68,9 @@ Route::middleware(['auth', 'verified', '2fa'])->group(function () {
     Route::put('/companies/{company}/timezone', [ClientPortalController::class, 'updateTimezone'])->name('companies.timezone.update');
 
     Route::get('/client-portal/companies/{company}/billing', [ClientPortalBillingController::class, 'index'])->name('client-portal.billing.index');
+    Route::get('/client-portal/companies/{company}/billing/history', [ClientPortalBillingHistoryController::class, 'index'])->name('client-portal.billing.history.index');
+    Route::get('/client-portal/companies/{company}/billing/history/{payment}/invoice', [ClientPortalBillingHistoryController::class, 'invoice'])->name('client-portal.billing.history.invoice');
+    Route::get('/client-portal/companies/{company}/billing/history/{payment}/receipt', [ClientPortalBillingHistoryController::class, 'receipt'])->name('client-portal.billing.history.receipt');
     Route::post('/client-portal/companies/{company}/plans/{plan}/checkout', [ClientPortalBillingController::class, 'checkout'])->name('client-portal.billing.checkout');
     Route::get('/client-portal/companies/{company}/billing/success', [ClientPortalBillingController::class, 'success'])->name('client-portal.billing.success');
     Route::post('/client-portal/companies/{company}/billing/portal', [ClientPortalBillingController::class, 'portal'])->name('client-portal.billing.portal');
