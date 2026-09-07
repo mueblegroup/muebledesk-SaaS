@@ -25,13 +25,16 @@
     $billingUrl = $selectedCompany && Route::has($billingRoute)
         ? route($billingRoute, $selectedCompany)
         : route('client-portal.dashboard');
+    $billingHistoryUrl = $selectedCompany && Route::has('client-portal.billing.history.index')
+        ? route('client-portal.billing.history.index', $selectedCompany)
+        : $billingUrl;
 
     $navigation = [
         ['label' => 'Overview', 'url' => route('client-portal.dashboard'), 'active' => request()->routeIs('client-portal.dashboard'), 'icon' => '⌂', 'show' => true],
         ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋', 'show' => true],
-        ['label' => 'API guide', 'url' => Route::has('admin.api-guide.index') ? route('admin.api-guide.index') : '#', 'active' => request()->routeIs('admin.api-guide.*'), 'icon' => '⌘', 'show' => $portalUser?->isAdmin() && Route::has('admin.api-guide.index')],
         ['label' => 'Profile & security', 'url' => route('profile.edit'), 'active' => request()->routeIs('profile.*'), 'icon' => '◎', 'show' => true],
-        ['label' => 'Plans & billing', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.*'), 'icon' => '◇', 'show' => true],
+        ['label' => 'Plans & billing', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.index', 'client-portal.billing.checkout', 'client-portal.billing.success', 'client-portal.billing.portal'), 'icon' => '◇', 'show' => true],
+        ['label' => 'Invoices & receipts', 'url' => $billingHistoryUrl, 'active' => request()->routeIs('client-portal.billing.history.*'), 'icon' => '▤', 'show' => (bool) $selectedCompany],
     ];
 @endphp
 <div x-data="{ sidebarOpen: false, theme: window.getTheme ? window.getTheme() : 'system' }" @theme-changed.window="theme = $event.detail.theme" class="min-h-screen lg:flex">
