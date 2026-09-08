@@ -25,16 +25,17 @@
     $billingUrl = $selectedCompany && Route::has($billingRoute)
         ? route($billingRoute, $selectedCompany)
         : route('client-portal.dashboard');
-    $billingHistoryUrl = $selectedCompany && Route::has('client-portal.billing.history.index')
+    $hasBillingHistoryRoute = $selectedCompany && Route::has('client-portal.billing.history.index');
+    $billingHistoryUrl = $hasBillingHistoryRoute
         ? route('client-portal.billing.history.index', $selectedCompany)
-        : $billingUrl;
+        : null;
 
     $navigation = [
         ['label' => 'Overview', 'url' => route('client-portal.dashboard'), 'active' => request()->routeIs('client-portal.dashboard'), 'icon' => '⌂', 'show' => true],
         ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋', 'show' => true],
         ['label' => 'Profile & security', 'url' => route('profile.edit'), 'active' => request()->routeIs('profile.*'), 'icon' => '◎', 'show' => true],
-        ['label' => 'Plans & billing', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.index', 'client-portal.billing.checkout', 'client-portal.billing.success', 'client-portal.billing.portal'), 'icon' => '◇', 'show' => true],
-        ['label' => 'Invoices & receipts', 'url' => $billingHistoryUrl, 'active' => request()->routeIs('client-portal.billing.history.*'), 'icon' => '▤', 'show' => (bool) $selectedCompany],
+        ['label' => 'Plans & subscription', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.index', 'client-portal.billing.checkout', 'client-portal.billing.success', 'client-portal.billing.portal'), 'icon' => '◇', 'show' => true],
+        ['label' => 'Billing & invoices', 'url' => $billingHistoryUrl, 'active' => request()->routeIs('client-portal.billing.history.*'), 'icon' => '▤', 'show' => (bool) $hasBillingHistoryRoute],
     ];
 @endphp
 <div x-data="{ sidebarOpen: false, theme: window.getTheme ? window.getTheme() : 'system' }" @theme-changed.window="theme = $event.detail.theme" class="min-h-screen lg:flex">
