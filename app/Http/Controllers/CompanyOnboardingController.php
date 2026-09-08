@@ -21,6 +21,13 @@ class CompanyOnboardingController extends Controller
                 ->with('warning', 'Complete your account profile before creating a company.');
         }
 
+        if (! $request->user()->canCreateCompany()) {
+            $limit = $request->user()->companyCreationLimit();
+
+            return redirect()->route('client-portal.dashboard')
+                ->with('warning', 'Your current subscription allows up to '.($limit ?? 1).' '.str('company')->plural($limit ?? 1).'. Upgrade a plan to create another company.');
+        }
+
         return view('onboarding.company', [
             'countries' => collect(config('registration.countries', []))
                 ->sortBy(fn (array $country) => $country['name'] ?? '')
@@ -34,6 +41,13 @@ class CompanyOnboardingController extends Controller
         if (! $request->user()->profile_completed_at) {
             return redirect()->route('profile.edit')
                 ->with('warning', 'Complete your account profile before creating a company.');
+        }
+
+        if (! $request->user()->canCreateCompany()) {
+            $limit = $request->user()->companyCreationLimit();
+
+            return redirect()->route('client-portal.dashboard')
+                ->with('warning', 'Your current subscription allows up to '.($limit ?? 1).' '.str('company')->plural($limit ?? 1).'. Upgrade a plan to create another company.');
         }
 
         $countries = config('registration.countries', []);
@@ -65,6 +79,14 @@ class CompanyOnboardingController extends Controller
             : null;
 
         $company = DB::transaction(function () use ($request, $validated, $countryCode, $phone, $registrationNumber, $taxNumber, $email): Company {
+            // Re-check inside the transaction so concurrent requests cannot exceed the entitlement.
+            $request->user()->refresh();
+            if (! $request->user()->canCreateCompany()) {
+                throw ValidationException::withMessages([
+                    'company' => 'Your subscription company limit has been reached.',
+                ]);
+            }
+
             $baseSlug = Str::slug($validated['name']) ?: 'company';
             $slug = $baseSlug;
             $suffix = 2;
