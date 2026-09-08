@@ -13,7 +13,7 @@ class ClientPortalBillingHistoryTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_client_portal_lists_only_canonical_billing_records_for_the_selected_company(): void
+    public function test_client_portal_lists_only_paid_canonical_billing_records_for_the_selected_company(): void
     {
         $user = User::factory()->create([
             'role' => UserRoleEnum::Admin,
@@ -25,6 +25,7 @@ class ClientPortalBillingHistoryTest extends TestCase
 
         $this->payment($company, 'in_visible_123', 'Visible SaaS plan purchase');
         $this->payment($company, 'cs_checkout_confirmation', 'Temporary checkout confirmation');
+        $this->payment($company, 'in_failed_123', 'Failed renewal', 'failed');
         $this->payment($otherCompany, 'in_private_456', 'Other company billing record');
 
         $this->actingAs($user)
@@ -32,6 +33,7 @@ class ClientPortalBillingHistoryTest extends TestCase
             ->assertOk()
             ->assertSee('Visible SaaS plan purchase')
             ->assertDontSee('Temporary checkout confirmation')
+            ->assertDontSee('Failed renewal')
             ->assertDontSee('Other company billing record')
             ->assertSee('View invoice')
             ->assertSee('Download receipt');
@@ -56,6 +58,27 @@ class ClientPortalBillingHistoryTest extends TestCase
 
         $this->actingAs($user)
             ->get(route('client-portal.billing.history.invoice', [$company, $otherPayment]))
+            ->assertNotFound();
+    }
+
+    public function test_failed_or_non_invoice_records_cannot_be_opened_as_billing_documents(): void
+    {
+        $user = User::factory()->create([
+            'role' => UserRoleEnum::Admin,
+            'email_verified_at' => now(),
+        ]);
+        $company = $this->company('document-company');
+        $user->companies()->attach($company->id, ['role' => 'owner', 'joined_at' => now()]);
+
+        $failed = $this->payment($company, 'in_failed_document', 'Failed invoice', 'failed');
+        $checkout = $this->payment($company, 'cs_checkout_document', 'Checkout row');
+
+        $this->actingAs($user)
+            ->get(route('client-portal.billing.history.invoice', [$company, $failed]))
+            ->assertNotFound();
+
+        $this->actingAs($user)
+            ->get(route('client-portal.billing.history.receipt', [$company, $checkout]))
             ->assertNotFound();
     }
 
@@ -95,7 +118,7 @@ class ClientPortalBillingHistoryTest extends TestCase
         ]);
     }
 
-    private function payment(Company $company, string $invoiceId, string $description): SubscriptionPayment
+    private function payment(Company $company, string $invoiceId, string $description, string $status = 'paid'): SubscriptionPayment
     {
         return SubscriptionPayment::create([
             'company_id' => $company->id,
@@ -103,11 +126,12 @@ class ClientPortalBillingHistoryTest extends TestCase
             'provider_invoice_id' => $invoiceId,
             'provider_payment_id' => 'pi_'.str()->lower(str()->random(12)),
             'provider_customer_id' => 'cus_'.str()->lower(str()->random(12)),
-            'status' => 'paid',
+            'status' => $status,
             'amount' => 99.00,
             'currency' => 'MYR',
             'description' => $description,
-            'paid_at' => now(),
+            'paid_at' => $status === 'paid' ? now() : null,
+            'failed_at' => $status === 'failed' ? now() : null,
             'metadata' => [
                 'hosted_invoice_url' => 'https://invoice.stripe.test/'.$invoiceId,
                 'invoice_pdf' => 'https://invoice.stripe.test/'.$invoiceId.'.pdf',

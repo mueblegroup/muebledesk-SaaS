@@ -18,18 +18,10 @@ class ClientPortalBillingHistoryController extends Controller
         $payments = SubscriptionPayment::query()
             ->with('plan')
             ->where('company_id', $company->id)
-            ->where(function ($query): void {
-                // Subscription checkout creates a temporary cs_* confirmation row.
-                // Stripe invoice webhooks create the canonical in_* billing record,
-                // which carries the real Stripe invoice URLs. Hide the temporary row
-                // so customers never see the same purchase twice.
-                $query->where('provider', '!=', 'stripe')
-                    ->orWhere(function ($stripeQuery): void {
-                        $stripeQuery->where('provider', 'stripe')
-                            ->where('provider_invoice_id', 'like', 'in_%');
-                    });
-            })
-            ->orderByDesc('created_at')
+            ->where('provider', 'stripe')
+            ->where('provider_invoice_id', 'like', 'in_%')
+            ->where('status', 'paid')
+            ->orderByDesc('paid_at')
             ->orderByDesc('id')
             ->paginate(20)
             ->withQueryString();
@@ -43,6 +35,7 @@ class ClientPortalBillingHistoryController extends Controller
     public function invoice(Request $request, Company $company, SubscriptionPayment $payment): RedirectResponse
     {
         $this->authorizePayment($request, $company, $payment);
+        abort_unless($payment->provider === 'stripe' && $payment->status === 'paid' && str_starts_with((string) $payment->provider_invoice_id, 'in_'), 404);
 
         $metadata = $payment->metadata ?? [];
         $url = $metadata['hosted_invoice_url'] ?? $metadata['invoice_pdf'] ?? null;
@@ -57,7 +50,12 @@ class ClientPortalBillingHistoryController extends Controller
     public function receipt(Request $request, Company $company, SubscriptionPayment $payment)
     {
         $this->authorizePayment($request, $company, $payment);
-        abort_unless($payment->status === 'paid', 404);
+        abort_unless(
+            $payment->provider === 'stripe'
+            && $payment->status === 'paid'
+            && str_starts_with((string) $payment->provider_invoice_id, 'in_'),
+            404
+        );
 
         $company->loadMissing('owners');
         $payment->loadMissing('plan');
