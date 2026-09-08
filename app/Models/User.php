@@ -57,6 +57,57 @@ class User extends Authenticatable implements MustVerifyEmail
         return $company !== null && $this->companies()->whereKey($company->getKey())->wherePivot('role', 'owner')->exists();
     }
 
+    /**
+     * Maximum number of companies this account may own.
+     *
+     * The first company can always be created before a subscription exists.
+     * Once the account owns a company, active owned-company subscriptions define
+     * the account-wide allowance. The highest finite allowance wins; if any
+     * active owned-company plan is unlimited (NULL), the account is unlimited.
+     */
+    public function companyCreationLimit(): ?int
+    {
+        if ($this->isSuperAdmin()) {
+            return null;
+        }
+
+        $ownedCompanies = $this->companies()
+            ->wherePivot('role', 'owner')
+            ->with('subscription.plan')
+            ->get();
+
+        if ($ownedCompanies->isEmpty()) {
+            return 1;
+        }
+
+        $activePlans = $ownedCompanies
+            ->map(fn (Company $company) => $company->subscription)
+            ->filter(fn ($subscription) => $subscription?->isActive() && $subscription->plan)
+            ->map(fn ($subscription) => $subscription->plan)
+            ->values();
+
+        if ($activePlans->isEmpty()) {
+            return 1;
+        }
+
+        if ($activePlans->contains(fn (PlatformSubscriptionPlan $plan) => is_null($plan->company_limit))) {
+            return null;
+        }
+
+        return max(1, (int) $activePlans->max('company_limit'));
+    }
+
+    public function ownedCompanyCount(): int
+    {
+        return $this->companies()->wherePivot('role', 'owner')->count();
+    }
+
+    public function canCreateCompany(): bool
+    {
+        $limit = $this->companyCreationLimit();
+        return is_null($limit) || $this->ownedCompanyCount() < $limit;
+    }
+
     public function clients() { return $this->hasOne(Client::class, 'user_id'); }
     public function quotations() { return $this->hasMany(Quotation::class, 'employee_id'); }
     public function invoices() { return $this->hasMany(Invoice::class, 'employee_id'); }
