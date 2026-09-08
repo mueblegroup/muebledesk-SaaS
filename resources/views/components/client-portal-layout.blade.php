@@ -34,12 +34,10 @@
     $billingHistoryUrl = $hasBillingHistoryRoute
         ? route('client-portal.billing.history.index', $selectedCompany)
         : null;
-    $canCreateCompany = $portalUser?->canCreateCompany() ?? false;
-    $companyLimit = $portalUser?->companyCreationLimit();
 
     $navigation = [
         ['label' => 'Overview', 'url' => route('client-portal.dashboard'), 'active' => request()->routeIs('client-portal.dashboard'), 'icon' => '⌂', 'show' => true],
-        ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋', 'show' => $canCreateCompany],
+        ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋', 'show' => true],
         ['label' => 'Profile & security', 'url' => route('profile.edit'), 'active' => request()->routeIs('profile.*'), 'icon' => '◎', 'show' => true],
         ['label' => 'Plans & subscription', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.index', 'client-portal.billing.checkout', 'client-portal.billing.success', 'client-portal.billing.portal'), 'icon' => '◇', 'show' => true],
         ['label' => 'Billing & invoices', 'url' => $billingHistoryUrl, 'active' => request()->routeIs('client-portal.billing.history.*'), 'icon' => '▤', 'show' => (bool) $hasBillingHistoryRoute],
@@ -71,13 +69,9 @@
                         @endforeach
                     </select>
                 </form>
-                <div class="mt-2 flex items-center justify-between gap-2 px-1 text-[11px] text-slate-400">
-                    <span>{{ $portalCompanies->count() }} accessible {{ str('company')->plural($portalCompanies->count()) }}</span>
-                    <span>{{ is_null($companyLimit) ? 'Unlimited creation' : 'Limit '.$companyLimit }}</span>
+                <div class="mt-2 px-1 text-[11px] text-slate-400">
+                    {{ $portalCompanies->count() }} accessible {{ str('company')->plural($portalCompanies->count()) }}
                 </div>
-                @unless($canCreateCompany)
-                    <p class="mt-2 rounded-xl bg-amber-400/10 px-3 py-2 text-[11px] font-semibold leading-4 text-amber-200">Company creation limit reached. Upgrade an active plan to increase the allowance.</p>
-                @endunless
             </div>
         @endif
 
