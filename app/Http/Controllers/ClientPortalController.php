@@ -55,21 +55,16 @@ class ClientPortalController extends Controller
         ]);
     }
 
-    public function select(Request $request, Company $company): RedirectResponse
-    {
-        $this->authorizeManagement($request, $company);
-
-        $request->user()->forceFill(['current_company_id' => $company->getKey()])->save();
-
-        return redirect()->route('client-portal.dashboard')
-            ->with('success', $company->name.' is now your selected company.');
-    }
-
     public function switch(Request $request, Company $company): RedirectResponse
     {
         $this->authorizeManagement($request, $company);
 
         $request->user()->forceFill(['current_company_id' => $company->getKey()])->save();
+
+        if ($request->input('destination') === 'portal') {
+            return redirect()->route('client-portal.dashboard')
+                ->with('success', $company->name.' is now your selected company.');
+        }
 
         return redirect()->away(sprintf(
             '%s://%s.%s/dashboard',
