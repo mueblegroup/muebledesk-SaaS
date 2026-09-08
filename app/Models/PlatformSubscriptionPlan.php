@@ -26,13 +26,14 @@ class PlatformSubscriptionPlan extends Model
 
     protected $fillable = [
         'name', 'slug', 'description', 'price', 'currency',
-        'duration_value', 'duration_unit', 'admin_limit', 'employee_limit',
+        'duration_value', 'duration_unit', 'company_limit', 'admin_limit', 'employee_limit',
         'client_limit', 'auto_renew_default', 'features', 'is_active', 'sort_order',
         'billing_rank', 'stripe_product_id', 'stripe_price_id',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
+        'company_limit' => 'integer',
         'admin_limit' => 'integer',
         'employee_limit' => 'integer',
         'client_limit' => 'integer',
