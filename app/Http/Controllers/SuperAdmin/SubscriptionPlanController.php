@@ -52,7 +52,6 @@ class SubscriptionPlanController extends Controller
             'currency' => ['required', 'string', 'size:3'],
             'duration_value' => ['required', 'integer', 'min:1', 'max:3650'],
             'duration_unit' => ['required', Rule::in(['days', 'months', 'years'])],
-            'company_limit' => ['nullable', 'integer', 'min:1'],
             'admin_limit' => ['nullable', 'integer', 'min:0'],
             'employee_limit' => ['nullable', 'integer', 'min:0'],
             'client_limit' => ['nullable', 'integer', 'min:0'],
