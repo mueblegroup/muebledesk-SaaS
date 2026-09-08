@@ -29,9 +29,6 @@ class ClientPortalController extends Controller
                 ->with('warning', 'Complete your account profile before creating or managing a company.');
         }
 
-        // The central domain is the SaaS account/company-management portal.
-        // Employee memberships are intentionally excluded: workplace access is
-        // through that company's subdomain, not through the central portal.
         $companies = $user->companies()
             ->wherePivotIn('role', ['owner', 'admin'])
             ->with(['subscription.plan', 'users:id,name,email,role'])
@@ -60,14 +57,14 @@ class ClientPortalController extends Controller
 
     public function switch(Request $request, Company $company): RedirectResponse
     {
-        $canManage = $request->user()->companies()
-            ->whereKey($company->getKey())
-            ->wherePivotIn('role', ['owner', 'admin'])
-            ->exists();
-
-        abort_unless($canManage, 403);
+        $this->authorizeManagement($request, $company);
 
         $request->user()->forceFill(['current_company_id' => $company->getKey()])->save();
+
+        if ($request->input('destination') === 'portal') {
+            return redirect()->route('client-portal.dashboard')
+                ->with('success', $company->name.' is now your selected company.');
+        }
 
         return redirect()->away(sprintf(
             '%s://%s.%s/dashboard',
@@ -79,12 +76,7 @@ class ClientPortalController extends Controller
 
     public function updateTimezone(Request $request, Company $company): RedirectResponse
     {
-        $canManage = $request->user()->companies()
-            ->whereKey($company->getKey())
-            ->wherePivotIn('role', ['owner', 'admin'])
-            ->exists();
-
-        abort_unless($canManage, 403);
+        $this->authorizeManagement($request, $company);
 
         $validated = $request->validate([
             'timezone' => ['required', 'timezone'],
@@ -97,10 +89,6 @@ class ClientPortalController extends Controller
             return back()->with('success', 'Company timezone is already set to '.$newTimezone.'.');
         }
 
-        // Never rewrite recurring next_invoice_date values when a timezone
-        // changes. Those are business occurrence dates, not UTC timestamps.
-        // After switching timezone, immediately run a company-scoped catch-up
-        // pass. The hourly scheduler remains the fallback if this pass fails.
         $company->update([
             'timezone' => $newTimezone,
         ]);
@@ -141,5 +129,15 @@ class ClientPortalController extends Controller
             'success',
             'Company timezone updated successfully. All recurring invoices due in the new timezone were checked and caught up.'
         );
+    }
+
+    private function authorizeManagement(Request $request, Company $company): void
+    {
+        $canManage = $request->user()->companies()
+            ->whereKey($company->getKey())
+            ->wherePivotIn('role', ['owner', 'admin'])
+            ->exists();
+
+        abort_unless($canManage, 403);
     }
 }

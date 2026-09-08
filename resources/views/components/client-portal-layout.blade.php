@@ -20,7 +20,12 @@
 <body class="client-portal-page min-h-screen font-sans antialiased transition-colors duration-200">
 @php
     $portalUser = auth()->user();
-    $selectedCompany = $company ?? $portalUser?->currentCompany ?? $portalUser?->companies()->with('subscription.plan')->first();
+    $portalCompanies = $portalUser?->companies()
+        ->wherePivotIn('role', ['owner', 'admin'])
+        ->with('subscription.plan')
+        ->orderBy('name')
+        ->get() ?? collect();
+    $selectedCompany = $company ?? $portalCompanies->firstWhere('id', $portalUser?->current_company_id) ?? $portalCompanies->first();
     $billingRoute = Route::has('client-portal.billing.show') ? 'client-portal.billing.show' : 'client-portal.billing.index';
     $billingUrl = $selectedCompany && Route::has($billingRoute)
         ? route($billingRoute, $selectedCompany)
@@ -29,10 +34,12 @@
     $billingHistoryUrl = $hasBillingHistoryRoute
         ? route('client-portal.billing.history.index', $selectedCompany)
         : null;
+    $canCreateCompany = $portalUser?->canCreateCompany() ?? false;
+    $companyLimit = $portalUser?->companyCreationLimit();
 
     $navigation = [
         ['label' => 'Overview', 'url' => route('client-portal.dashboard'), 'active' => request()->routeIs('client-portal.dashboard'), 'icon' => '⌂', 'show' => true],
-        ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋', 'show' => true],
+        ['label' => 'Create company', 'url' => route('companies.create'), 'active' => request()->routeIs('companies.create'), 'icon' => '＋', 'show' => $canCreateCompany],
         ['label' => 'Profile & security', 'url' => route('profile.edit'), 'active' => request()->routeIs('profile.*'), 'icon' => '◎', 'show' => true],
         ['label' => 'Plans & subscription', 'url' => $billingUrl, 'active' => request()->routeIs('client-portal.billing.index', 'client-portal.billing.checkout', 'client-portal.billing.success', 'client-portal.billing.portal'), 'icon' => '◇', 'show' => true],
         ['label' => 'Billing & invoices', 'url' => $billingHistoryUrl, 'active' => request()->routeIs('client-portal.billing.history.*'), 'icon' => '▤', 'show' => (bool) $hasBillingHistoryRoute],
@@ -49,6 +56,30 @@
             </a>
             <button type="button" class="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-white lg:hidden" @click="sidebarOpen = false">✕</button>
         </div>
+
+        @if($portalCompanies->isNotEmpty())
+            <div class="border-b border-white/10 px-4 py-4">
+                <p class="mb-2 px-1 text-[10px] font-black uppercase tracking-[.16em] text-slate-500">Selected company</p>
+                <form method="POST" action="{{ route('companies.switch', $selectedCompany) }}" x-data="{ companyId: '{{ $selectedCompany?->id }}' }" @change="if ($event.target.name === 'company_id') { const option = $event.target.options[$event.target.selectedIndex]; $refs.switchForm.action = option.dataset.action; $refs.switchForm.submit(); }" x-ref="switchForm">
+                    @csrf
+                    <input type="hidden" name="destination" value="portal">
+                    <select name="company_id" class="block w-full rounded-2xl border-white/10 bg-white/10 px-3 py-2.5 text-sm font-bold text-white focus:border-indigo-400 focus:ring-indigo-400">
+                        @foreach($portalCompanies as $portalCompany)
+                            <option value="{{ $portalCompany->id }}" data-action="{{ route('companies.switch', $portalCompany) }}" @selected((int) $selectedCompany?->id === (int) $portalCompany->id) class="text-slate-950">
+                                {{ $portalCompany->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                </form>
+                <div class="mt-2 flex items-center justify-between gap-2 px-1 text-[11px] text-slate-400">
+                    <span>{{ $portalCompanies->count() }} accessible {{ str('company')->plural($portalCompanies->count()) }}</span>
+                    <span>{{ is_null($companyLimit) ? 'Unlimited creation' : 'Limit '.$companyLimit }}</span>
+                </div>
+                @unless($canCreateCompany)
+                    <p class="mt-2 rounded-xl bg-amber-400/10 px-3 py-2 text-[11px] font-semibold leading-4 text-amber-200">Company creation limit reached. Upgrade an active plan to increase the allowance.</p>
+                @endunless
+            </div>
+        @endif
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-4 py-5">
             @foreach ($navigation as $item)
@@ -85,6 +116,7 @@
 
         <main class="min-h-[calc(100vh-5rem)]"><div class="mx-auto max-w-[1600px] px-4 py-7 sm:px-6 lg:px-10 lg:py-10">
             @if (session('success'))<div class="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300">{{ session('success') }}</div>@endif
+            @if (session('warning'))<div class="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300">{{ session('warning') }}</div>@endif
             @if (session('error'))<div class="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">{{ session('error') }}</div>@endif
             @if ($errors->any())<div class="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">{{ $errors->first() }}</div>@endif
             {{ $slot }}
