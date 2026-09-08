@@ -26,14 +26,13 @@ class PlatformSubscriptionPlan extends Model
 
     protected $fillable = [
         'name', 'slug', 'description', 'price', 'currency',
-        'duration_value', 'duration_unit', 'company_limit', 'admin_limit', 'employee_limit',
+        'duration_value', 'duration_unit', 'admin_limit', 'employee_limit',
         'client_limit', 'auto_renew_default', 'features', 'is_active', 'sort_order',
         'billing_rank', 'stripe_product_id', 'stripe_price_id',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
-        'company_limit' => 'integer',
         'admin_limit' => 'integer',
         'employee_limit' => 'integer',
         'client_limit' => 'integer',
@@ -114,9 +113,6 @@ class PlatformSubscriptionPlan extends Model
             return (int) $this->billing_rank <=> (int) $current->billing_rank;
         }
 
-        // Safe legacy fallback: price only defines tier order when the plans
-        // share the same currency and billing interval. Admins should set an
-        // explicit billing rank for mixed monthly/yearly or multi-currency tiers.
         if ($this->sameBillingIntervalAs($current)
             && strtoupper((string) $this->currency) === strtoupper((string) $current->currency)) {
             return ((float) $this->price) <=> ((float) $current->price);
